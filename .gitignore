@@ -1,0 +1,16 @@
+# Ignorar entornos virtuales
+virtualEenv/
+.env/
+.venv/
+# Archivos de macOS
+.DS_Store
+# Archivos de Visual Studio Code
+.vscode/
+# Archivos de log
+*.log
+# Archivos de Python
+__pycache__/
+*.pyc
+*.pyo
+# Ignorar la carpeta BigData
+BigData/
