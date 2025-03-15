@@ -14,3 +14,5 @@ __pycache__/
 *.pyo
 # Ignorar la carpeta BigData
 BigData/
+# Ignorar la carpeta docker
+docker_mvp/

@@ -17,3 +17,4 @@ jupyterlab==4.2.4
 ipykernel==6.29.5
 uvicorn==0.34.0
 openpyxl==3.1.5
+cryptography==44.0.2 # Para encriptar y generar la "FERNET_KEY" desde la terminal del entorno virtual: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
