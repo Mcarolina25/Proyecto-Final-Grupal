@@ -1,0 +1,29 @@
+# Archivo para orqustar los contenedores YpDAnRMkmYRMHSD6dmCOhG2xaJEcSmM_yTN_nmXn-pE=
+# Flujo de Arranque desde la terminal de Docker o VSC parados en la raiz del docker:
+# 1.	Levantamos el init: docker compose up airflow-init
+# 2.	Levantamos el resto (airflow-webserver y airflow-scheduler): docker compose up
+# -.	Para parar los contenedores: docker compose down
+# -.	Para ver los logs de un contenedor: docker compose logs -f <nombre_contenedor>
+# -.	Para ver los contenedores activos: docker compose ps
+# -.	Para ver los contenedores detenidos: docker compose ps -a
+# -.	Para ver los volúmenes: docker volume ls
+# -.	Para borrar los volúmenes: docker volume rm <nombre_volumen>
+# -.	Para borrar las imágenes: docker image rm <nombre_imagen>
+# -.	Para borrar los contenedores: docker container rm <nombre_contenedor>
+# -.	Para borrar los networks: docker network rm <nombre_network>
+# -.	Para borrar los build: docker build --no-cache -t
+
+version: "3.8"
+
+services:
+  servicio_python:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+    container_name: contenedor_base_python
+    volumes:
+      - ../ml/scripts:/app/scripts
+      - ../data:/app/data
+    # Por ahora no exponemos puertos, porque no hay servicio web
+    # command: python /app/scripts/etl.py  (lo activaremos más adelante)
+

@@ -1,0 +1,25 @@
+# docker/Dockerfile.base
+FROM python:3.9-slim
+
+
+# Instalamos librerias del sistema de ser necesarias, por lo pronto aún no se requieren:
+# RUN apt-get update && apt-get install -y \
+#     acá van las librerias que se requieran
+# .......
+
+# Definimos un directorio de trabajo
+WORKDIR /app
+
+# Copiamos el archivo de requerimientos (listado de librerias de python por ejemplo)
+# con /app/ se indica que el requirements.txt está en la raiz del directorio de trabajo
+COPY requirements.txt /app/ 
+
+# Ahora instalamos las dependencias indicadas en el archivo requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiamos el contenido que necesitemos del directorio actual (.) a /app
+# COPY . /app
+# Por ahora dejamos que se monten vía volumen en docker-compose.yml
+
+# Comando por defecto que se ejecutará al iniciar el contenedor (lo ajustaremos en el docker-compose.yml)
+CMD ["python", "--version"]

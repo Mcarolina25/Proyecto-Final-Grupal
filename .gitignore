@@ -15,5 +15,5 @@ __pycache__/
 *.pyo
 # Ignorar la carpeta BigData
 data/
-# Ignorar la carpeta docker
-docker/
+# Ignorar la carpeta data (Archivos crudos de Google y Yelp)
+data/
