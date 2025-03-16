@@ -1,5 +1,32 @@
 
 ```
+PROYECTO-FINAL-GRUPAL/ (Rama_salopezna)
+├── data/
+│   └── ... 
+├── services/                   # Carpeta para almacenar cada servicio a implementar
+│   │                           
+│   ├── airflow/
+│   │   ├── Dockerfile          # Contenedor con instrucciones de la imagen de Airflow (el orquestador de tareas)
+│   │   └── dags/               # DAG principal de Airflow, indica el orden (sin ciclos repetitivos) ejecución tareas
+│   │                           # (p.ej: 1.cargar archivos JSON, 2.luego transformarlos, 3.luego insertarlos en DB).
+│   ├── fastapi/
+│   │   ├── Dockerfile          # Contenedor con instrucciones de la imagen de FastAPI (para crear un microservicio)
+│   │   └── main.py
+│   │                           
+│   ├── streamlit/
+│   │   ├── Dockerfile          # Contenedor con instrucciones de la imagen de Streamlit (opcional para Dashboard)
+│   │   └── app.py
+│   │                           
+│   └── ml/
+│       ├── Dockerfile
+│       ├── scripts/
+│       └── models/
+│                           
+├── docker-compose.yml          # Archivo con instrucciones para Orquestar los contenedores (Postgres, Airflow, etc.)
+├── requirements.txt            # Lista de librerías de Python requeridas (por ejemplo pandas, numpy, sqlalchemy, etc.)
+└── README.md
+
+
 PF_DS/
 ├── docker/
 │   ├── Dockerfile.airflow       # Contenedor con instrucciones de la imagen de Airflow (el orquestador de tareas)
