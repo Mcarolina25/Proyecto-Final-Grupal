@@ -1,5 +1,5 @@
 
-'''
+```
 PF_DS/
 ├── docker/
 │   ├── Dockerfile.airflow       # Contenedor con instrucciones de la imagen de Airflow (el orquestador de tareas)
@@ -26,4 +26,4 @@ PF_DS/
 │   └── app.py                   # Código de Streamlit (si lo usan)
 ├── requirements.txt             # Dependencias (o uno por servicio, según convenga)
 └── README.md
-'''
+```
