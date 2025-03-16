@@ -7,23 +7,23 @@ PF_DS/
 │   ├── Dockerfile.streamlit     # Contenedor con instrucciones de la imagen de Streamlit (opcional para Dashboard)
 │   └── docker-compose.yml       # Archivo con instrucciones para Orquestar los contenedores (Postgres, Airflow, etc.)
 ├── dags/
-│   └── etl_dag.py               # DAG principal de Airflow
+│   └── etl_dag.py               # DAG principal de Airflow, indica el orden (sin ciclos repetitivos) en que se ejecutan las tareas del pipeline de datos (p.ej: 1.cargar archivos JSON, 2.luego transformarlos, 3.luego insertarlos en DB).
 ├── ml/
 │   ├── scripts/
 │   │   ├── etl.py               # Lógica de ETL
-│   │   ├── functions.py         # Funciones auxiliares
+│   │   ├── functions.py         # Funciones de python usadas a lo largo del ETL y EDA
 │   │   └── ...
 │   └── models/
-│       └── model.pkl           # Modelo entrenado
+│       └── model.pkl           # Modelo entrenado con ML para predictores y/o recomendadores
 ├── data/
 │   ├── google/
-│   │   └── ...                  # Archivos JSON de metadata-sitios, reviews, etc.
+│   │   └── ...                  # Archivos crudos de Google en formato JSON
 │   └── yelp/
-│       └── ...                  # Archivos JSON/Pickle de Yelp
+│       └── ...                  # Archivos crudos de Yelp en formatos JSON/Pickle/parquet
 ├── api/
-│   └── main.py                  # Código de FastAPI
+│   └── main.py                  # Código FastAPI para exponer servicio web que entregue recomendaciones y/o predicciones 
 ├── dashboard/
-│   └── app.py                   # Código de Streamlit (si lo usan)
-├── requirements.txt             # Dependencias (o uno por servicio, según convenga)
+│   └── app.py                   # Código de Streamlit (opcional para Dashboar)
+├── requirements.txt             # Lista de librerías de Python requeridas (por ejemplo pandas, numpy, sqlalchemy, etc.)
 └── README.md
 ```
