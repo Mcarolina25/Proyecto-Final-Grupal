@@ -1,5 +1,6 @@
-# Ignorar entornos virtuales
-virtualEenv/
+# Ignorar:
+# Entorno virtual
+virtualEnv/
 .env/
 .venv/
 # Archivos de macOS
@@ -13,6 +14,6 @@ __pycache__/
 *.pyc
 *.pyo
 # Ignorar la carpeta BigData
-BigData/
+data/
 # Ignorar la carpeta docker
-docker_mvp/
+docker/
