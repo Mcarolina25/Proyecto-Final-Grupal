@@ -789,7 +789,7 @@ def normalizar_y_categorizar_campo(df_dict, hojas, campo):
     Retorna:
       dict: El diccionario de DataFrames con la columna especificada actualizada en las hojas indicadas.
     """
-    from functions import normalizar_texto  # Asegúrate de que la función normalizar_texto esté definida en functions.py
+    from services.ml.scripts.functions import normalizar_texto  # Asegúrate de que la función normalizar_texto esté definida en functions.py
 
     # Crear un conjunto para almacenar las categorías únicas globales del campo especificado
     categorias_global = set()
