@@ -2,10 +2,10 @@
 
 PF_DS/
 ├── docker/
-│   ├── Dockerfile.airflow       # Para la imagen de Airflow
-│   ├── Dockerfile.fastapi       # Para la imagen de FastAPI (opcional si vas a crear un microservicio)
-│   ├── Dockerfile.streamlit     # Para la imagen de Streamlit (si vas a usarlo)
-│   └── docker-compose.yml       # Orquesta todos los contenedores (Postgres, Airflow, etc.)
+│   ├── Dockerfile.airflow       # Contenedor con instrucciones de la imagen de Airflow (el orquestador de tareas)
+│   ├── Dockerfile.fastapi       # Contenedor con instrucciones de la imagen de FastAPI (para crear un microservicio)
+│   ├── Dockerfile.streamlit     # Contenedor con instrucciones de la imagen de Streamlit (opcional para Dashboard)
+│   └── docker-compose.yml       # Archivo con instrucciones para Orquestar los contenedores (Postgres, Airflow, etc.)
 ├── dags/
 │   └── etl_dag.py               # DAG principal de Airflow
 ├── ml/
