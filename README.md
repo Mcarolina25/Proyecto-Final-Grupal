@@ -129,7 +129,7 @@ Configuraríamos un volumen espejo de la data procesada entre lo local y el cont
 Mantendríamos nuestros modelos en `./models` (o en GCS). Tanto el contenedor de ML como el de FastAPI compartirían acceso a esa carpeta a través de un volumen. Así, si un contenedor se borra, el modelo persistiría y no tendríamos que reentrenarlo desde cero. Además, consideraríamos la opción de almacenar estos modelos en la nube para mayor seguridad.  
 </p>
 
-# Distribución de Tareas y Configuración del Proyecto
+# 🧠 Distribución de Tareas y Configuración del Proyecto 🤓
 <p align="justify">
 Esta propuesta de distribución de tareas se enfoca en que la mayoría del equipo trabaje en notebooks (ipynb) para el desarrollo de scripts y pruebas, mientras que un integrante se encarga de la integración en contenedores y la orquestación con Airflow.
 </p>
@@ -148,21 +148,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 
 ---
 
-## 2. Integración en Contenedores y Orquestación con Airflow  
-**Responsable:** **Integrante 2 (Especialista en Contenedores y Airflow)**  
-
-**Tareas clave:**
-- **Unificación y Dockerización:**
-  - Encapsular los notebooks y módulos desarrollados por el equipo en contenedores Docker (para Airflow, FastAPI y Streamlit).
-  - Crear y mantener el archivo `docker-compose.yml` para orquestar los distintos servicios.
-- **Orquestación con Airflow:**
-  - Diseñar y configurar el entorno de Airflow, definiendo los DAGs que orquesten la ejecución de las tareas (ingesta, transformación, entrenamiento, reentrenamiento).
-  - Asegurar la integración correcta entre Airflow y los demás servicios a través de los contenedores.
-  - Integrar al README principal toda la documentación de esta fase.
-
----
-
-## 3. Desarrollo de Modelos de Machine Learning y Scripts ETL  
+## 2. Desarrollo de Modelos de Machine Learning y Scripts ETL  
 **Responsable:** **Integrante 3**  
 
 **Tareas clave:**
@@ -175,7 +161,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 
 ---
 
-## 4. Desarrollo de la API con FastAPI  
+## 3. Desarrollo de la API con FastAPI  
 **Responsable:** **Integrante 4**  
 
 **Tareas clave:**
@@ -188,7 +174,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 
 ---
 
-## 5. Desarrollo de Visualizaciones y Dashboards con Streamlit y/o PowerBI 
+## 4. Desarrollo de Visualizaciones y Dashboards con Streamlit y/o PowerBI 
 **Responsable:** **Integrante 5**  
 
 **Tareas clave:**
@@ -197,6 +183,20 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
   - Conectar y probar el acceso a los datos (directamente o vía la API) para mostrar KPIs y métricas relevantes.
 - **Preparación para Contenerización:**
   - Organizar el código e implementación final para que pueda ser fácilmente integrado y conectdo con los contenedores y DB del proyecto.
+  - Integrar al README principal toda la documentación de esta fase.
+
+---
+
+## 5. Integración en Contenedores y Orquestación con Airflow  
+**Responsable:** **Integrante 2 (Especialista en Contenedores y Airflow)**  
+
+**Tareas clave:**
+- **Unificación y Dockerización:**
+  - Encapsular los notebooks y módulos desarrollados por el equipo en contenedores Docker (para Airflow, FastAPI y Streamlit).
+  - Crear y mantener el archivo `docker-compose.yml` para orquestar los distintos servicios.
+- **Orquestación con Airflow:**
+  - Diseñar y configurar el entorno de Airflow, definiendo los DAGs que orquesten la ejecución de las tareas (ingesta, transformación, entrenamiento, reentrenamiento).
+  - Asegurar la integración correcta entre Airflow y los demás servicios a través de los contenedores.
   - Integrar al README principal toda la documentación de esta fase.
 
 ---
