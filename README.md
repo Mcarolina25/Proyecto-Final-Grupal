@@ -1,4 +1,4 @@
-
+# 💻 Organización de la Información en el Repositorio 🤖
 ```
 PROYECTO-FINAL-GRUPAL/ (Rama_salopezna)
 ├── data/
@@ -31,7 +31,7 @@ PROYECTO-FINAL-GRUPAL/ (Rama_salopezna)
 └── README.md
 ```
 
-# 1. Visión general de nuestra arquitectura
+# 1. Visión general de la Arquitectura propuesta
 
 ### Almacenamiento de datos crudos (Data Lake)
 <p align="justify">
