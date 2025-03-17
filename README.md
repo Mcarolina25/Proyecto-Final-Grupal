@@ -135,20 +135,21 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 </p>
 ---
 
-## 1. Ingesta, Almacenamiento y Preprocesamiento de Datos  
+## 1. ETL y Preprocesamiento de Datos  
 **Responsable:** **Integrante 1**  
 
 **Tareas clave:**
 - **Desarrollo en Notebooks:**
-  - Crear y probar scripts en notebooks para la carga, limpieza y transformación de archivos (JSON, CSV, etc.) provenientes de Google y Yelp.
+  - Crear y probar scripts en notebooks para la carga, limpieza y transformación de archivos (JSON, CSV, pkl, parquetetc.) provenientes de Google y Yelp.
   - Validar el proceso de ingesta de datos en un entorno local (sin contenedores) para asegurar que la lógica ETL funcione correctamente.
 - **Gestión del Data Lake Local:**
   - Definir la organización y versionado de los datos en la carpeta `./data` y planificar la sincronización con el bucket en GCS (si es necesario).
+  - Proporcionar la estructura de datos depurada a l@s compañer@s para el desarrollo de los modelos de ML y parte de la data para el Dashboards.
   - Integrar al README principal toda la documentación de esta fase.
 
 ---
 
-## 2. Desarrollo de Modelos de Machine Learning y Scripts ETL  
+## 2. Desarrollo de Modelos de Machine Learning  
 **Responsable:** **Integrante 3**  
 
 **Tareas clave:**
