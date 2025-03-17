@@ -5,24 +5,27 @@
 import json
 import pandas as pd
 import sys
-sys.path.append('/Users/usuario/Documents/PF_Henry/Proyecto-Final-Grupal')
-from functions import *
+from functions import opciones_impresion, validar_df
 
-opciones_impresion() # Invocamos la función para mejorar la impresion y que no se recorte la información al imprimir.
+def main():
+    opciones_impresion()
+    
+    ruta = '/app/data/Google/metadata-sitios/11.json'
+    lista = []
 
-ruta = '/Users/usuario/Documents/PF_Henry/Proyecto-Final-Grupal/Data/Google/metadata-sitios/11.json'
-lista = []
+    with open(ruta, 'r') as file:
+        for line in file:
+            line = line.strip()
+            if line:
+                try:
+                    registro = json.loads(line)
+                    lista.append(registro)
+                except json.JSONDecodeError as e:
+                    print(f"Error al decodificar una línea: {e}")
 
-with open(ruta, 'r') as file:
-    for line in file:
-        line = line.strip()  # Elimina espacios y saltos de línea
-        if line:  # Evita procesar líneas vacías
-            try:
-                registro = json.loads(line)
-                lista.append(registro)
-            except json.JSONDecodeError as e:
-                print(f"Error al decodificar una línea: {e}")
+    df = pd.DataFrame(lista)
+    print(validar_df(df))
+    print(df.head(10))
 
-df = pd.DataFrame(lista)
-print(validar_df(df))
-print(df.head(10))
+if __name__ == "__main__":
+    main()

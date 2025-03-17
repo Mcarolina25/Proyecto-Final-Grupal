@@ -12,6 +12,12 @@
 # -.	Para borrar los contenedores: docker container rm <nombre_contenedor>
 # -.	Para borrar los networks: docker network rm <nombre_network>
 # -.	Para borrar los build: docker build --no-cache -t
+# -.	Detener y eliminar contenedores: docker compose down
+# -.	Para limpiar los volúmenes: docker compose down --volumes
+# -.	Para limpiar las imágenes: docker image prune -a
+# -.	Para borrar los contenedores: docker container prune
+# -.	Para borrar los networks: docker network prune
+
 
 version: '3.8'
 services:
