@@ -79,7 +79,7 @@ Para la parte de visualización y dashboards:
 
 
 
-> **Clave**: Todos los contenedores que requirían datos se conectarían a la **DB** o al Data Lake/carpeta local o Nube donde los guardaríamos. Tanto la base de datos como los datos crudos y los modelos se manejarían con volúmenes persistentes (o servicios de almacenamiento en la nube), de modo que no los perderíamos si un contenedor se elimina.
+> **Clave**: Todos los contenedores que requieran datos se conectarían a la **DB** o al Data Lake/carpeta local o Nube donde los guardaríamos. Tanto la base de datos como los datos crudos y los modelos se manejarían con volúmenes persistentes (o servicios de almacenamiento en la nube), de modo que no los perderíamos si un contenedor se elimina.
 
 ---
 
