@@ -135,12 +135,12 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 </p>
 ---
 
-## 1. ETL y Preprocesamiento de Datos  
-**Responsable:** **Integrante 1**  
+## 1. ETL, Preprocesamiento de Datos y Api para datos Externos  
+**Responsable:** **Delia y Alejandro**  
 
 **Tareas clave:**
 - **Desarrollo en Notebooks:**
-  - Crear y probar scripts en notebooks para la carga, limpieza y transformación de archivos (JSON, CSV, pkl, parquetetc.) provenientes de Google y Yelp.
+  - Crear y probar scripts en notebooks para la carga, limpieza y transformación de archivos (JSON, CSV, pkl, parquetetc.) provenientes de Google y Yelp ubicados en la nube (GCP).
   - Validar el proceso de ingesta de datos en un entorno local (sin contenedores) para asegurar que la lógica ETL funcione correctamente.
 - **Gestión del Data Lake Local:**
   - Definir la organización y versionado de los datos en la carpeta `./data` y planificar la sincronización con el bucket en GCS (si es necesario).
