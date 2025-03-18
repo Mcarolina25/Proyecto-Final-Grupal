@@ -189,7 +189,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 ---
 
 ## 5. Integración en Contenedores y Orquestación con Airflow  
-**Responsable:** **Integrante 2 (Especialista en Contenedores y Airflow)**  
+**Responsable:** **Integrante 5 (Especialista en Contenedores y Airflow)**  
 
 **Tareas clave:**
 - **Unificación y Dockerización:**
