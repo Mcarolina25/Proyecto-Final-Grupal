@@ -29,4 +29,4 @@ Diseño de la Base de Datos
 
  User_id y latitud y longitud serían las llaves que esta relacionando los dataset de google y yelp
 
- El script se encuentra [Pulse Aquí](https://example.com)
+ El script se encuentra [Aquí](https://github.com/Mcarolina25/Proyecto-Final-Grupal/blob/Rama_DeMoCa/BaseDeDatos/Script.sql)
