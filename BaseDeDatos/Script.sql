@@ -1,21 +1,22 @@
 drop table sitios;
 
 create table sitios(
-	gmap_id varchar(50) primary key,
-	category varchar(20),
-	name varchar(20),
-	address varchar(100),
+	gmap_id varchar(80) primary key,
+	category text,
+	name text,
+	address varchar(101),
 	descripcion varchar(100) ,
 	latitude varchar(20),
 	longitude varchar(20),
 	avg_rating float,
 	num_of_reviews numeric,
 	price float,
-	hours json,
-	MISC json,
+	hours text,
+	"MISC" text,
 	state varchar(25),
-	relative_results json,
-	URL json
+	relative_results text,
+	URL text,
+	description text
 );
 
 select * from sitios;
