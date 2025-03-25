@@ -150,7 +150,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 ---
 
 ## 2. Desarrollo de Modelos de Machine Learning  
-**Responsable:** **Integrante 3**  
+**Responsable:** **Ariel**  
 
 **Tareas clave:**
 - **Desarrollo en Notebooks:**
@@ -163,7 +163,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 ---
 
 ## 3. Desarrollo de la API con FastAPI  
-**Responsable:** **Integrante 4**  
+**Responsable:** **Delia y Alejandro**  
 
 **Tareas clave:**
 - **Desarrollo en Notebooks y Scripts:**
@@ -176,7 +176,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 ---
 
 ## 4. Desarrollo de Visualizaciones y Dashboards con Streamlit y/o PowerBI 
-**Responsable:** **Integrante 5**  
+**Responsable:** **Carolina**  
 
 **Tareas clave:**
 - **Desarrollo en Dashboard:**
@@ -189,7 +189,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 ---
 
 ## 5. Integración en Contenedores y Orquestación con Airflow  
-**Responsable:** **Integrante 5 (Especialista en Contenedores y Airflow)**  
+**Responsable:** **Sergio**  
 
 **Tareas clave:**
 - **Unificación y Dockerización:**
@@ -209,7 +209,7 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
   - Una vez que el código esté probado, se centralizará en el repositorio y se entregará a Integrante 2 para la creación de los contenedores.
 
 - **Orquestación y Automatización:**
-  - El Integrante 2 se encargará de orquestar la ejecución de las tareas (ingesta, transformación, entrenamiento y actualización) mediante Airflow, configurando los DAGs y asegurando la comunicación entre los contenedores.
+  - Sergio se encargará de orquestar la ejecución de las tareas (ingesta, transformación, entrenamiento y actualización) mediante Airflow, configurando los DAGs y asegurando la comunicación entre los contenedores.
   
 - **Reuniones de Coordinación:**
   - Se programarán reuniones semanales para revisar avances, aclarar dudas y coordinar la integración de los módulos desarrollados en notebooks al entorno contenerizado.
