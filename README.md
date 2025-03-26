@@ -1,6 +1,6 @@
 # 💻 Organización de la Información en el Repositorio 🤖
 ```
-PROYECTO-FINAL-GRUPAL/ (Rama_salopezna)
+PROYECTO-FINAL-GRUPAL/
 ├── data/
 │   └── ... 
 ├── services/                      # Carpeta para almacenar cada servicio a implementar
