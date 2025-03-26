@@ -12,11 +12,7 @@ PROYECTO-FINAL-GRUPAL/ (Rama_salopezna)
 │   ├── fastapi/                   # Carpeta almacenadora de todo lo requerido para el servicio de FastApi
 │   │   ├── Dockerfile             # Contenedor con instrucciones de la imagen de FastAPI (para crear un microservicio)
 │   │   └── main.py                #
-│   │                           
-│   ├── streamlit/                 # Carpeta almacenadora de todo lo requerido para el servicio de Streamlit (visualización)
-│   │   ├── Dockerfile             # Contenedor con instrucciones de la imagen de Streamlit (opcional para Dashboard)
-│   │   └── app.py                 #
-│   │                           
+│   │                                                      
 │   └── ml/                        # Carpeta almacenadora de todo lo referente a ML
 │       ├── Dockerfile             #
 │       ├── scripts/               #
@@ -29,6 +25,8 @@ PROYECTO-FINAL-GRUPAL/ (Rama_salopezna)
 ├── requirements.txt               # Lista de librerías de Python requeridas (por ejemplo pandas, numpy, sqlalchemy, etc.)
 ├── .gitignore                     # Archivo con lista de darpetas y archivos a ingnorar por GitHub (archivos pesados)
 └── README.md
+
+PowerBI estará en Local conectado a la DB PostgreSQL y API del Recomendador.
 ```
 
 # 1. Visión general de la Arquitectura propuesta
@@ -69,17 +67,11 @@ FastAPI expondría endpoints de **predicción** o **recomendaciones**.
 - Cargaría el modelo entrenado desde el volumen persistente (o desde GCS) al arrancar.  
 - Se conectaría a la base de datos para obtener datos adicionales cuando fuera necesario (por ejemplo, información de los establecimientos).
 </p>
-
-### Contenedor de Streamlit
-<p align="justify">
-Para la parte de visualización y dashboards:  
-- **Streamlit** (contenedor) se conectaría a la base de datos o a los endpoints de FastAPI para mostrar KPIs, gráficas y análisis interactivos.  
-- **Power BI** (externo) podría enlazarse directamente con nuestra DB o con un endpoint de FastAPI para refrescar datos y presentar informes.
+ 
+- **Power BI** (externo en local) se enlaza directamente con la DB y/o con un endpoint de FastAPI para refrescar datos y mostrar todo lo visual.
 </p>
 
-
-
-> **Clave**: Todos los contenedores que requieran datos se conectarían a la **DB** o al Data Lake/carpeta local o Nube donde los guardaríamos. Tanto la base de datos como los datos crudos y los modelos se manejarían con volúmenes persistentes (o servicios de almacenamiento en la nube), de modo que no los perderíamos si un contenedor se elimina.
+> **Clave**: Todos los contenedores que requieran datos se conectarían a la **DB PostgreSQL** alojada en uno de los contenedores desde donde igualmente extraemos la data de interes almacendad en **GCP**. Tanto la base de datos como los datos crudos y los modelos se manejarían con volúmenes persistentes (o servicios de almacenamiento en la nube), de modo que no los perderíamos si un contenedor se elimina o reinicia.
 
 ---
 
@@ -102,7 +94,7 @@ Lanzaríamos un DAG de Airflow que entrenaría o reentrenaría nuestros modelos 
 
 ### Consumo
 <p align="justify">
-FastAPI cargaría el modelo entrenado en memoria al iniciarse (o cuando recibiera la primera solicitud). Streamlit, Power BI u otras herramientas consultarían FastAPI para obtener predicciones y visualizaciones, o bien accederían directamente a la base de datos y al modelo.
+FastAPI cargaría el modelo entrenado en memoria al iniciarse (o cuando recibiera la primera solicitud). Power BI u otras herramientas consultarían FastAPI para obtener predicciones y visualizaciones, o bien accederían directamente a la base de datos y al modelo.
 </p>
 
 ### Reentrenamiento continuo
@@ -175,13 +167,13 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 
 ---
 
-## 4. Desarrollo de Visualizaciones y Dashboards con Streamlit y/o PowerBI 
+## 4. Desarrollo de Visualizaciones y Dashboards con PowerBI 
 **Responsable:** **Carolina**  
 
 **Tareas clave:**
 - **Desarrollo en Dashboard:**
-  - Crear dashboards interactivos y visualizaciones de datos utilizando Streamlit o PowerBI en un entorno local.
-  - Conectar y probar el acceso a los datos (directamente o vía la API) para mostrar KPIs y métricas relevantes.
+  - Crear dashboards interactivos y visualizaciones de datos utilizando PowerBI en un entorno local.
+  - Conectar y probar el acceso a los datos (directamente a DB y/o vía API) para mostrar KPIs y métricas relevantes.
 - **Preparación para Contenerización:**
   - Organizar el código e implementación final para que pueda ser fácilmente integrado y conectdo con los contenedores y DB del proyecto.
   - Integrar al README principal toda la documentación de esta fase.
@@ -193,11 +185,11 @@ Esta propuesta de distribución de tareas se enfoca en que la mayoría del equip
 
 **Tareas clave:**
 - **Unificación y Dockerización:**
-  - Encapsular los notebooks y módulos desarrollados por el equipo en contenedores Docker (para Airflow, FastAPI y Streamlit).
-  - Crear y mantener el archivo `docker-compose.yml` para orquestar los distintos servicios.
+  - Encapsular los notebooks y módulos desarrollados por el equipo en contenedores Docker a lo que le llamaremos "**servicios**" (para Airflow, FastAPI y ML).
+  - Crear y mantener el archivo `docker-compose.yml` para orquestar los distintos **servicios**.
 - **Orquestación con Airflow:**
-  - Diseñar y configurar el entorno de Airflow, definiendo los DAGs que orquesten la ejecución de las tareas (ingesta, transformación, entrenamiento, reentrenamiento).
-  - Asegurar la integración correcta entre Airflow y los demás servicios a través de los contenedores.
+  - Diseñar y configurar el entorno de Airflow, definiendo los **DAGs** que orquesten la ejecución de las tareas (ingesta, transformación, entrenamiento, reentrenamiento).
+  - Asegurar la integración correcta entre Airflow y los demás **servicios** a través de los contenedores.
   - Integrar al README principal toda la documentación de esta fase.
 
 ---
