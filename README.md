@@ -1,7 +1,32 @@
 # 💻 Organización de la Información en el Repositorio 🤖
-```
 
-```
+PROYECTO-FINAL-GRUPAL/
+├── data/
+│   └── ... 
+├── services/                      # Carpeta para almacenar cada servicio a implementar
+│   │                           
+│   ├── airflow/                   # Carpeta almacenadora de todo lo requerido para el servicio de Airflow
+│   │   ├── Dockerfile             # Contenedor con instrucciones de la imagen de Airflow (el orquestador de tareas)
+│   │   └── dags/                  # DAG principal de Airflow, indica el orden (sin ciclos repetitivos) ejecución tareas
+│   │                              # (p.ej: 1.cargar archivos JSON, 2.luego transformarlos, 3.luego insertarlos en DB).
+│   ├── fastapi/                   # Carpeta almacenadora de todo lo requerido para el servicio de FastApi
+│   │   ├── Dockerfile             # Contenedor con instrucciones de la imagen de FastAPI (para crear un microservicio)
+│   │   └── main.py                #
+│   │                                                      
+│   └── ml/                        # Carpeta almacenadora de todo lo referente a ML
+│       ├── Dockerfile             #
+│       ├── scripts/               #
+│       │   └── functions.py       #
+│       │   └── test_etl.ipynb     #               
+│       └── models/                # Carpeta almacenadora de modelos entrenados de ML
+│           └── model.pkl          # Modelo entrenado con ML para predictores y/o recomendadores
+│                           
+├── docker-compose.yml             # Archivo con instrucciones para Orquestar los contenedores (Postgres, Airflow, etc.)
+├── requirements.txt               # Lista de librerías de Python requeridas (por ejemplo pandas, numpy, sqlalchemy, etc.)
+├── .gitignore                     # Archivo con lista de darpetas y archivos a ingnorar por GitHub (archivos pesados)
+└── README.md
+
+PowerBI estará en Local conectado a la DB PostgreSQL y API del Recomendador.
 
 # 1. Visión general de la Arquitectura propuesta
 
@@ -34,6 +59,10 @@
 <p align="justify">
 
 </p>
+ 
+- **Power BI** (externo en local) se enlaza directamente con la DB y/o con un endpoint de FastAPI para refrescar datos y mostrar todo lo visual.
+
+> **Clave**: Todos los contenedores que requieran datos se conectarían a la **DB PostgreSQL** alojada en uno de los contenedores desde donde igualmente extraemos la data de interes almacendad en **GCP**. Tanto la base de datos como los datos crudos y los modelos se manejarían con volúmenes persistentes (o servicios de almacenamiento en la nube), de modo que no los perderíamos si un contenedor se elimina o reinicia.
 
 ---
 
@@ -95,13 +124,11 @@ Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, pr
 **Tareas clave:**
 - **Desarrollo en Notebooks:**
   - Crear y probar scripts en notebooks para la carga, limpieza y transformación de archivos (JSON, CSV, pkl, parquetetc.) provenientes de Google y Yelp.
-  - 
+  - Validar el proceso de ingesta de datos en un entorno local (sin contenedores) para asegurar que la lógica ETL funcione correctamente.
 - **Gestión del Data Lake Local:**
   - Definir la organización y versionado de los datos en la carpeta `./data` y planificar la sincronización con el bucket en GCS (si es necesario).
   - Proporcionar la estructura de datos depurada al equipo desarrollador para la implementacion de cada servicio.
   - Integrar al README principal toda la documentación de esta fase.
-
----
 
 ## 2. Desarrollo de Modelos de Machine Learning  
 **Responsable:** **Ariel**  
@@ -114,8 +141,6 @@ Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, pr
   - Documentar el proceso de entrenamiento y validación, estableciendo los pasos para la integración en el entorno de producción.
   - Integrar al README principal toda la documentación de esta fase.
 
----
-
 ## 3. Desarrollo de la API con FastAPI  
 **Responsable:** **Delia y Alejandro**  
 
@@ -127,8 +152,6 @@ Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, pr
 - **Preparación para despliegue sobre GCP:**
   - Proveer el código final en un formato fácilmente integrable, para que el responsable de la orquestacion y automatización lo implemente con Cloud Composer.
 
----
-
 ## 4. Desarrollo de Visualizaciones y Dashboards con Streamlit y/o PowerBI 
 **Responsable:** **Carolina**  
 
@@ -139,8 +162,6 @@ Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, pr
 - **Preparación para despliegue sobre GCP:**
   - Organizar el código e implementación final para que pueda ser fácilmente integrado y conectado con GCP.
   - Integrar al README principal toda la documentación de esta fase.
-
----
 
 ## 5. Integración en GCP y Orquestación con Cloud Composer-Airflow  
 **Responsable:** **Sergio**  
@@ -154,8 +175,6 @@ Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, pr
   - Asegurar la integración correcta entre Airflow y los demás servicios a través de las herramientas de implementación de GCP.
   - Integrar al README principal toda la documentación de esta fase.
 
----
-
 ## Coordinación y Flujo de Trabajo Global
 
 - **Integración de Scripts y microservicios sobre GCP:**
@@ -163,7 +182,7 @@ Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, pr
   - Una vez que el código esté probado, se centralizará en el repositorio y se entregará a el responsable de la orquestación y automatización.
 
 - **Orquestación y Automatización:**
-  - Sergio se encargará de orquestar la ejecución de las tareas (ingesta, transformación, entrenamiento y actualización) mediante Airflow, configurando los DAGs y asegurando la comunicación entre los ,icroservicios.
+  - Sergio se encargará de orquestar la ejecución de las tareas (ingesta, transformación, entrenamiento y actualización) mediante Airflow, configurando los DAGs y asegurando la comunicación entre los contenedores.
   
 - **Reuniones de Coordinación:**
   - Se programarán reuniones semanales para revisar avances, aclarar dudas y coordinar la integración de los módulos desarrollados en notebooks al entorno GCP.
