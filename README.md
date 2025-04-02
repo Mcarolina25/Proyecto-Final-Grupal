@@ -1,6 +1,12 @@
 # 💻 Organización de la Información en el Repositorio 🤖
 
+```
+PROYECTO-FINAL-GRUPAL/
+├── 
+└── README.md
 
+PowerBI estará en Local conectado a la DB PostgreSQL y API del Recomendador.
+```
 
 # 1. Visión general de la Arquitectura propuesta
 
