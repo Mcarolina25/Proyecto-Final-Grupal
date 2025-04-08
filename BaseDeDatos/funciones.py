@@ -245,7 +245,7 @@ def insert_into_table_review(path_file ):
 
     df_final = clean_review_dataframe(df_no_duplicates)
 
-    #engine = get_connection_engine()
+    #engine = get_connection_endrop_duplicatesgine()
     #type_operation= 'append'
     #index_value = False
     #insertar_sql(df_final, 'review', engine, type_operation, index_value)
