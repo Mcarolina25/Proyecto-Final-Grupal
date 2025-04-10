@@ -1,40 +1,43 @@
-Version de Postgres:
+### Stack Tecnologico
+
+Se utilizó la nube de google cloud, los componentes usados son:
+
+Cloud Composer, el cual tiene embebido Airflow y se encarga de la orquestación por medio de DAGs. Para comunicarse entre sus componentes, enlistados a continuación:
+
+Cloud Storage, estaría haciendo la función del data lake, donde se estan almacenando los archivo
+A traves de python es como lee el cloud Storage, hace la limpieza y los registros los sube a Big Query.
+
 ![alt text](image.png)
 
-Tareas a Realizar
--   Base de Datos
-    -   Definir Que base de datos a Utilizar
-    -   Instalación Base de Datos: Propuesta PostgreSQL
+#### Base De Datos
 
--   DataLake    
-        -   Definir la organización de la carpeta que contiene los archivos (en zip?)
-        -   Planificar la sincronización con el bucket de GSC (si es necesario)
+A continuación el diagrama entidad relación
+![alt text](image-1.png)
 
--   Diseño Base de Datos  --> Delia
-    -   Creación del Diagrama
-        -   Crear tablas
-        -   Indices
+##### Diccionario de datos
 
--   API --> Alejandro
-    -   Definir API a utilizar
-    -   Definir Integración
-    -   Obtención de datos
-    -   Guardar Datos
-    
+###### Google Maps
 
--   EDA/ETL
-    -   Librerias utilizadas:
-            import psycopg2
-            from sqlalchemy import create_engine
-            import pandas as pd
-            import os
-            import json
-    -   Crear notebook para la limpieza  de los archivos de tipo JSON, PKL, parquet, etc y Filtrado --> Dependemos de Ariel
-    -   Cargar los Datos A Base de Datos    --> Dependemos del punto anterior
-    
+* Sitios
 
+![alt text](image-2.png)
 
+* Business
 
+![alt text](image-3.png)
 
+* Review
 
+![alt text](image-4.png)
 
+* Usuario
+
+![alt text](image-5.png)
+
+* Tip
+
+![alt text](image-6.png)
+
+* Check in
+
+![alt text](image-7.png)
