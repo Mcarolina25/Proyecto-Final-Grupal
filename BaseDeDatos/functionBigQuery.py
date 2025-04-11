@@ -5,14 +5,45 @@ from pandas_gbq import to_gbq
 import bigframes.pandas as bpd
 import json
 from google.cloud import storage
+from google.oauth2 import service_account
+from google.cloud import bigquery
+
 
 
 PROJECT_ID = 'adsac-455509'
 LOCATION = "southamerica-east1" 
+service_account_path = 'adsac-455509-0d5538a0d624.json'
 
 bpd.options.bigquery.project = PROJECT_ID
 bpd.options.bigquery.location = LOCATION
 bpd.options.display.progress_bar = None
+
+def merge_records(service_account_path, destination_table, column_ids, df_new_data):
+    #If y}oy have more than one identifier, please split by comma, example 1,2,3
+    # Initialize a BigQuery client using the service account key file
+    credentials = service_account.Credentials.from_service_account_file(service_account_path)
+    client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+
+    # Load the existing table data into a DataFrame
+    query = f"SELECT {column_ids} FROM {destination_table}"
+    existing_data = client.query(query).to_dataframe()
+
+    # Check for duplicates based on the unique identifier
+    merged_df = pd.merge(df_new_data, existing_data, on=column_ids, how="left", indicator=True)
+
+    non_duplicates_df = merged_df[merged_df["_merge"] == "left_only"].drop(columns=["_merge"])
+    # Check if the DataFrame is empty
+    if not non_duplicates_df.empty:
+        print("The DataFrame has data!")
+        # Load the non-duplicate records to BigQuery
+        job = client.load_table_from_dataframe(non_duplicates_df, destination_table)
+        job.result() # Wait for the job to complete
+
+        print("New records inserted successfully without duplicating information.")
+    else:
+        print("We do not have new data, then we canno insert anything")
+
+
 
 def etl_picklet_file(file_path):
     # Create a GCS file system object
@@ -40,8 +71,9 @@ def etl_picklet_file(file_path):
     destination_table = 'adsac-455509.Curated.Business'
 
     # Upload DataFrame
-    to_gbq(df_business, destination_table, project_id=PROJECT_ID, if_exists='replace')  # Use 'append' if you want to add rows
-    print("Termino con éxito la creación de la tabla: ",destination_table)
+    column_ids = "business_id"
+    merge_records(service_account_path, destination_table, column_ids, df_business)
+
 
 
 def etl_parquet_file(file_path):
@@ -66,8 +98,9 @@ def etl_parquet_file(file_path):
     destination_table = 'adsac-455509.Curated.Usuario'
 
     # Upload DataFrame
-    to_gbq(df_user, destination_table, project_id=PROJECT_ID, if_exists='replace')  # Use 'append' if you want to add rows
-    print("Termino con éxito la creación de la tabla:",destination_table)
+    # Upload DataFrame
+    column_ids = "user_id"
+    merge_records(service_account_path, destination_table, column_ids, df_user)
 
 
 
@@ -101,15 +134,15 @@ def etl_review_json_file(file_path):
     df_review = df_review.drop_duplicates(['review_id', 'user_id', 'business_id', 'stars', 'useful', 'funny', 'cool', 'text'])
     destination_table = 'adsac-455509.Curated.Review'
 
-    # Upload DataFrame
-    to_gbq(df_review, destination_table, project_id=PROJECT_ID, if_exists='replace')  # Use 'append' if you want to add rows
-    print("Termino con éxito la creación de la tabla:",destination_table)
+    column_ids = "review_id"
+    merge_records(service_account_path, destination_table, column_ids, df_review)
+
 
 
 def etl_checkin_json_file(file_path):
     # This is how you read a BigQuery table
-    client = storage.Client.from_service_account_json('adsac-455509-0d5538a0d624.json')
-    bucket = client.get_bucket('adsac')
+    client_storage = storage.Client.from_service_account_json(service_account_path)
+    bucket = client_storage.get_bucket('adsac')
     #blob = bucket.blob('Yelp/checkin.json')
     blob = bucket.blob(file_path)
     content = blob.download_as_text()
@@ -121,9 +154,11 @@ def etl_checkin_json_file(file_path):
     
     #Insertar en la tabla curada
     destination_table = 'adsac-455509.Curated.CheckIn'
-    # Upload DataFrame
-    to_gbq(df_checkin, destination_table, project_id=PROJECT_ID, if_exists='replace')  # Use 'append' if you want to add rows
-    print("Termino con éxito la creación de la tabla:",destination_table)
+
+    column_ids = "business_id"
+    merge_records(service_account_path, destination_table, column_ids, df_checkin)
+
+    
 
 def etl_business_json_file(file_path):
     # This is how you read a BigQuery table
@@ -148,8 +183,9 @@ def etl_business_json_file(file_path):
     #Insertar en la tabla curada
     destination_table = 'adsac-455509.Curated.Business'
     # Upload DataFrame
-    to_gbq(df_business, destination_table, project_id=PROJECT_ID, if_exists='replace')  # Use 'append' if you want to add rows
-    print("Termino con éxito la creación de la tabla:",destination_table)
+    column_ids = "business_id"
+    non_duplicates_df = merge_records(service_account_path, destination_table, column_ids, df_business)
+
 
 def etl_tip_json_file(file_path):
     # This is how you read a BigQuery table
@@ -187,7 +223,7 @@ def identify_restaurant(ref):
     return 1
 
 def etl_sitios_json_file(file_path):
-    client = storage.Client.from_service_account_json('adsac-455509-0d5538a0d624.json')
+    client = storage.Client.from_service_account_json(service_account_path)
     bucket = client.get_bucket('adsac')
     #blob = bucket.blob('Google/1.json')
     blob = bucket.blob(file_path)
@@ -222,15 +258,18 @@ def etl_sitios_json_file(file_path):
     #Insertar en la tabla curada
     destination_table = 'adsac-455509.Curated.Sitios'
     # Upload DataFrame
-    to_gbq(df_sitios, destination_table, project_id=PROJECT_ID, if_exists='replace')  # Use 'append' if you want to add rows
-    print("Termino con éxito la creación de la tabla:",destination_table)
+    column_ids = "gmap_id"
+    non_duplicates_df = merge_records(service_account_path, destination_table, column_ids, df_sitios)
+
+
 
 def etl():
     #etl_picklet_file('gs://adsac/Yelp/business.pkl')
     #etl_parquet_file('gs://adsac/Yelp/user.parquet')
     #etl_checkin_json_file('Yelp/checkin.json')
-    #etl_review_json_file('Yelp/review.json') volver a ejecutar solo para validar por el hard coded q estaba
+    #etl_review_json_file('Yelp/review.json') 
     #etl_tip_json_file('Yelp/tip.json')
-    #etl_sitios_json_file('Google/1.json')
+    etl_sitios_json_file('Google/1.json')
+   
    
     
