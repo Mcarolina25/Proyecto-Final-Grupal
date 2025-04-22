@@ -2,4 +2,11 @@ FROM python:3.9-slim
 WORKDIR /app
 COPY . /app
 RUN pip install fastapi uvicorn
+RUN pip install gcsfs
+RUN pip install pandas
+RUN pip install bigframes
+RUN pip install scipy
+RUN pip install scikit-learn
+RUN pip install geopy
+#RUN pip install folium
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

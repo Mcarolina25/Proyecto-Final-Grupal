@@ -39,14 +39,15 @@ Los pasos siguientes serán sobre google Cloud, por lo cual como pre-requerimien
             gcloud auth configure-docker
 
 9.- Se carga la imagen de docker previamente creada en el paso 3, con el siguiente comando
-            docker push gcr.io/adsac-455509/my-app
+            docker push gcr.io/acme-987654/my-app
 
 10.- Ejecute la siguiente línea de comandos para validar que esta la imagen cargada en el cloud:
+gcloud container images list
     ![alt text](image-5.png)
 
 11.- Despliegue la aplicación en google cloud con el siguiente comando:
 
-        gcloud run deploy api1 --image gcr.io/adsac-455509/my-app --platform managed --region southamerica-east1 --allow-unauthenticated
+        gcloud run deploy api1 --image gcr.io/acme-987654/my-app --platform managed --region southamerica-east1 --allow-unauthenticated
     
     ![alt text](image-7.png)
 
@@ -69,14 +70,15 @@ Los pasos siguientes serán sobre google Cloud, por lo cual como pre-requerimien
 Los pasos siguientes serán sobre google Cloud, por lo cual como pre-requerimiento es tener cuenta de google cloud, los siguientes pasos se hacen desde una terminal de windows de google tools
 
 3.- Se carga la imagen de docker previamente creada en el paso 3, con el siguiente comando
-            docker push gcr.io/adsac-455509/my-app
+            docker push gcr.io/acme-987654/my-app
 
 4.- Ejecute la siguiente línea de comandos para validar que esta la imagen cargada en el cloud:
+
     ![alt text](image-5.png)
 
 5.- Despliegue la aplicación en google cloud con el siguiente comando:
 
-        gcloud run deploy api1 --image gcr.io/adsac-455509/my-app --platform managed --region southamerica-east1 --allow-unauthenticated
+        gcloud run deploy api1 --image gcr.io/acme-987654/my-app --platform managed --region southamerica-east1 --allow-unauthenticated
     
     ![alt text](image-7.png)
 
