@@ -1,0 +1,175 @@
+# ==========================
+# MÓDULO: Registro de Archivos en Google Drive
+# ==========================
+
+# Librerías necesarias
+from google.cloud import bigquery
+import google.auth
+from googleapiclient.discovery import build
+import logging
+import os
+from datetime import datetime
+
+# ==========================
+# Configuración de Logging
+# ==========================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==========================
+# Variables Globales de Configuración
+# ==========================
+PROJECT_ID = "acme-987654"  # ID del proyecto de GCP
+DATASET_ID = "Registro_Archivos"  # Dataset en BigQuery
+TABLE_GDRIVE = "archivos_en_gdrive"  # Nombre de la tabla para archivos encontrados en Google Drive
+FOLDER_ID = "111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7"  # ID de la carpeta compartida
+
+# ==========================
+# Funciones de inicialización de clientes
+# ==========================
+
+def get_bigquery_client():
+    return bigquery.Client(project=PROJECT_ID)
+
+
+def get_drive_service():
+    credentials, _ = google.auth.default(scopes=['https://www.googleapis.com/auth/drive.readonly'])
+    service = build('drive', 'v3', credentials=credentials)
+    return service
+
+# ==========================
+# Funciones auxiliares
+# ==========================
+
+def crear_dataset_y_tabla():
+    try:
+        client = get_bigquery_client()
+
+        dataset_ref = f"{PROJECT_ID}.{DATASET_ID}"
+        try:
+            client.get_dataset(dataset_ref)
+            logger.info(f"✅ Dataset '{DATASET_ID}' ya existe.")
+        except Exception:
+            dataset = bigquery.Dataset(dataset_ref)
+            dataset.location = "US"
+            client.create_dataset(dataset)
+            logger.info(f"📁 Dataset '{DATASET_ID}' creado exitosamente.")
+
+        table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GDRIVE}"
+        try:
+            client.get_table(table_ref)
+            logger.info(f"✅ Tabla '{TABLE_GDRIVE}' ya existe.")
+        except Exception:
+            schema = [
+                bigquery.SchemaField("file_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("file_name", "STRING"),
+                bigquery.SchemaField("mime_type", "STRING"),
+                bigquery.SchemaField("created_time", "TIMESTAMP"),
+                bigquery.SchemaField("web_view_link", "STRING"),
+            ]
+            table = bigquery.Table(table_ref, schema=schema)
+            client.create_table(table)
+            logger.info(f"📂 Tabla '{TABLE_GDRIVE}' creada exitosamente.")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error en crear_dataset_y_tabla: {str(e)}")
+        return False
+
+# ==========================
+# Funciones principales
+# ==========================
+
+def registrar_archivos_gdrive():
+    try:
+        drive_service = get_drive_service()
+        bigquery_client = get_bigquery_client()
+
+        archivos_a_insertar = []
+        page_token = None
+        total_files = 0
+
+        while True:
+            response = drive_service.files().list(
+                q=f"'{FOLDER_ID}' in parents and trashed = false",
+                spaces='drive',
+                fields='nextPageToken, files(id, name, mimeType, createdTime, webViewLink)',
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+
+            for file in response.get('files', []):
+                total_files += 1
+
+                file_id = file['id']
+                file_name = file.get('name', '')
+                mime_type = file.get('mimeType', '')
+                created_time = file.get('createdTime', None)
+                web_view_link = file.get('webViewLink', '')
+
+                # Verificar si ya existe
+                query = f"""
+                    SELECT COUNT(1) as cantidad
+                    FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GDRIVE}`
+                    WHERE file_id = @file_id
+                """
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[bigquery.ScalarQueryParameter("file_id", "STRING", file_id)]
+                )
+                results = list(bigquery_client.query(query, job_config=job_config).result())
+                ya_registrado = results[0].cantidad > 0
+
+                if not ya_registrado:
+                    archivos_a_insertar.append({
+                        "file_id": file_id,
+                        "file_name": file_name,
+                        "mime_type": mime_type,
+                        "created_time": created_time,
+                        "web_view_link": web_view_link
+                    })
+
+            page_token = response.get('nextPageToken', None)
+            if page_token is None:
+                break
+
+        logger.info(f"Total archivos encontrados en Drive: {total_files}")
+
+        if archivos_a_insertar:
+            table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GDRIVE}"
+            errores = bigquery_client.insert_rows_json(table_ref, archivos_a_insertar)
+
+            if errores:
+                logger.error(f"Errores al insertar archivos de Drive: {errores}")
+                return False
+
+            logger.info(f"Se insertaron {len(archivos_a_insertar)} archivos nuevos (Google Drive).")
+        else:
+            logger.info("No hay archivos nuevos para insertar (Google Drive).")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Error en registrar_archivos_gdrive: {str(e)}")
+        return False
+
+# ==========================
+# PUNTO DE ENTRADA de la Cloud Function
+# ==========================
+
+def carga_incremental(request):
+    try:
+        logger.info("Inicio de ejecución de carga incremental (Drive)...")
+
+        if not crear_dataset_y_tabla():
+            return ("Error al crear Dataset o Tabla", 500)
+
+        if not registrar_archivos_gdrive():
+            return ("Error al registrar archivos de Google Drive", 500)
+
+        logger.info("Carga incremental desde Google Drive completada exitosamente.")
+        return ("Carga incremental desde Google Drive completada exitosamente.", 200)
+
+    except Exception as e:
+        logger.error(f"Error general en carga_incremental: {str(e)}")
+        return (f"Error: {str(e)}", 500)
