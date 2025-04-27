@@ -170,3 +170,141 @@ Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, pr
 
 ---
 
+# Microservicios de Registro de Archivos
+
+Este repositorio contiene dos microservicios independientes desarrollados en **Python 3.9** para ejecutarse en **Cloud Run**, encargados de registrar archivos encontrados en:
+
+- **Google Cloud Storage (GCS)**
+- **Google Drive (Carpeta Compartida)**
+
+Cada microservicio registra los archivos encontrados en un **dataset centralizado en BigQuery** (`Registro_Archivos`), en distintas tablas.
+
+---
+
+# Orquestación - Automatización
+
+## Microservicio 1: `registro-archivos-gcs`
+
+### Descripción
+
+Escanea un bucket de **Google Cloud Storage** bajo un prefijo específico (`Google/`) y registra en BigQuery los archivos nuevos que no hayan sido previamente registrados.
+
+### Tabla de destino
+
+- **Dataset**: `Registro_Archivos`
+- **Tabla**: `archivos_en_gcs`
+
+### Estructura de la tabla
+
+| Campo            | Tipo     | Descripción                         |
+|------------------|----------|-------------------------------------|
+| file_name        | STRING   | Nombre del archivo                  |
+| fecha_creacion   | TIMESTAMP| Fecha de creación del archivo       |
+| size_bytes       | INTEGER  | Tamaño en bytes                     |
+| mime_type        | STRING   | Tipo MIME del archivo               |
+| gcs_path         | STRING   | Ruta completa en GCS                |
+
+### Variables importantes
+
+- **PROJECT_ID**: ID del proyecto GCP
+- **DATASET_ID**: `Registro_Archivos`
+- **TABLE_GCS**: `archivos_en_gcs`
+- **BUCKET_NAME**: Nombre del bucket en GCS
+- **FOLDER_PREFIX**: Prefijo para buscar archivos (`Google/`)
+
+### Flujo de ejecución
+
+1. Verifica/crea el dataset y la tabla.
+2. Lista archivos bajo el prefijo definido.
+3. Verifica si ya están registrados.
+4. Registra los nuevos en batch de forma concurrente (**async**).
+
+### Requirements.txt
+
+```text
+Flask==2.2.5
+functions-framework
+google-cloud-storage
+google-cloud-bigquery
+```
+
+### Notas
+
+- No requiere Docker.
+- Usa autenticación mediante **Service Account** ya configurada en Cloud Run.
+
+---
+
+## Microservicio 2: `registro-archivos-gdrive`
+
+### Descripción
+
+Escanea una **carpeta compartida en Google Drive** y registra en BigQuery los archivos nuevos detectados, evitando duplicados.
+
+### Tabla de destino
+
+- **Dataset**: `Registro_Archivos`
+- **Tabla**: `archivos_en_gdrive`
+
+### Estructura de la tabla
+
+| Campo            | Tipo     | Descripción                         |
+|------------------|----------|-------------------------------------|
+| file_name        | STRING   | Nombre del archivo                  |
+| fecha_creacion   | TIMESTAMP| Fecha de creación del archivo       |
+| size_bytes       | INTEGER  | Tamaño en bytes                     |
+| mime_type        | STRING   | Tipo MIME del archivo               |
+| drive_file_id    | STRING   | ID del archivo en Google Drive      |
+| drive_web_link   | STRING   | URL de acceso al archivo            |
+
+### Variables importantes
+
+- **PROJECT_ID**: ID del proyecto GCP
+- **DATASET_ID**: `Registro_Archivos`
+- **TABLE_DRIVE**: `archivos_en_gdrive`
+- **FOLDER_ID**: `111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7`
+
+### Flujo de ejecución
+
+1. Verifica/crea el dataset y la tabla.
+2. Se conecta al API de Google Drive.
+3. Lista los archivos de la carpeta compartida.
+4. Verifica duplicados en BigQuery.
+5. Registra los archivos nuevos.
+
+### Requirements.txt
+
+```text
+Flask==2.2.5
+functions-framework
+google-cloud-bigquery
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+```
+
+### Notas
+
+- No requiere Docker.
+- Usa autenticación de **Service Account** para Google Drive API.
+- La carpeta compartida debe tener permisos para `python-service-account@acme-987654.iam.gserviceaccount.com`.
+
+---
+
+# Buenas Prácticas Seguidas
+
+- Código modularizado y limpio.
+- Manejo de errores robusto.
+- Uso de clientes oficiales de Google Cloud.
+- Implementación eficiente (Concurrente para GCS).
+- Compatible con despliegue automático en Cloud Run.
+
+# Próximos Pasos (en pruebas)
+
+- Implementar métricas y trazabilidad en BigQuery/Looker Studio.
+- Agregar Pub/Sub triggers para escaneo periódico automático.
+- Optimizar paralelismo dinámico según cantidad de archivos.
+
+---
+
