@@ -1,0 +1,193 @@
+# ==========================
+# MÓDULO: Registro de Archivos en GCS
+# ==========================
+
+# Librerías necesarias
+from google.cloud import bigquery, storage
+import logging
+import os
+from datetime import datetime
+
+# ==========================
+# Configuración de Logging
+# ==========================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==========================
+# Variables Globales de Configuración
+# ==========================
+PROJECT_ID = "acme-987654"  # ID del proyecto de GCP
+DATASET_ID = "Registro_Archivos"  # Dataset en BigQuery
+TABLE_GCS = "archivos_en_gcs"  # Nombre de la tabla para archivos encontrados en GCS
+BUCKET_NAME = "acme_storage"  # Nombre de tu bucket en Cloud Storage
+FOLDER_PREFIX = "Google/"  # Carpeta dentro del bucket donde buscar los archivos
+
+# ==========================
+# Función para obtener el cliente de BigQuery
+# ==========================
+def get_bigquery_client():
+    return bigquery.Client(project=PROJECT_ID)
+
+# ==========================
+# Función para obtener el cliente de Cloud Storage
+# ==========================
+def get_storage_client():
+    return storage.Client(project=PROJECT_ID)
+
+# ==========================
+# Función para crear el Dataset y Tabla si no existen
+# ==========================
+def crear_dataset_y_tabla():
+    """
+    Esta función se encarga de:
+    - Verificar si el Dataset existe. Si no, lo crea.
+    - Verificar si la Tabla existe. Si no, la crea.
+    """
+
+    try:
+        # Inicializamos el cliente de BigQuery
+        client = get_bigquery_client()
+
+        # ==============================================
+        # 1. Verificar si el Dataset existe
+        # ==============================================
+
+        dataset_ref = f"{PROJECT_ID}.{DATASET_ID}"
+
+        try:
+            client.get_dataset(dataset_ref)
+            logger.info(f"✅ Dataset '{DATASET_ID}' ya existe.")
+        except Exception:
+            # Si no existe, lo creamos
+            dataset = bigquery.Dataset(dataset_ref)
+            dataset.location = "US"  # Puedes ajustar si quieres otra región
+            client.create_dataset(dataset)
+            logger.info(f"📁 Dataset '{DATASET_ID}' creado exitosamente.")
+
+        # ==============================================
+        # 2. Verificar si la Tabla existe
+        # ==============================================
+
+        table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS}"
+
+        try:
+            client.get_table(table_ref)
+            logger.info(f"✅ Tabla '{TABLE_GCS}' ya existe.")
+        except Exception:
+            # Si no existe, la creamos
+            schema = [
+                bigquery.SchemaField("file_name", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("fecha_creacion", "TIMESTAMP"),
+                bigquery.SchemaField("size_bytes", "INTEGER"),
+                bigquery.SchemaField("mime_type", "STRING"),
+                bigquery.SchemaField("gcs_path", "STRING"),
+            ]
+
+            table = bigquery.Table(table_ref, schema=schema)
+            client.create_table(table)
+            logger.info(f"📂 Tabla '{TABLE_GCS}' creada exitosamente.")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error en crear_dataset_y_tabla: {str(e)}")
+        return False
+
+# ==========================
+# Función para registrar archivos de GCS en BigQuery - REGISTRO CONCURRENTE (Async)
+
+import concurrent.futures
+
+def registrar_archivos_gcs():
+    try:
+        storage_client = get_storage_client()
+        bigquery_client = get_bigquery_client()
+
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blobs = list(bucket.list_blobs(prefix=FOLDER_PREFIX))
+
+        logger.info(f"Encontrados {len(blobs)} archivos en GCS bajo el prefijo '{FOLDER_PREFIX}'.")
+
+        def procesar_blob(blob):
+            try:
+                file_name = os.path.basename(blob.name)
+                if not file_name:
+                    return None
+
+                query = f"""
+                    SELECT COUNT(1) as cantidad
+                    FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS}`
+                    WHERE file_name = @file_name
+                """
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[bigquery.ScalarQueryParameter("file_name", "STRING", file_name)]
+                )
+                results = list(bigquery_client.query(query, job_config=job_config).result())
+                ya_registrado = results[0].cantidad > 0
+
+                if not ya_registrado:
+                    return {
+                        "file_name": file_name,
+                        "fecha_creacion": blob.time_created.isoformat(),
+                        "size_bytes": blob.size,
+                        "mime_type": blob.content_type,
+                        "gcs_path": f"gs://{BUCKET_NAME}/{blob.name}"
+                    }
+                return None
+
+            except Exception as e:
+                logger.error(f"Error procesando blob {blob.name}: {str(e)}")
+                return None
+
+        archivos_a_insertar = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            resultados = executor.map(procesar_blob, blobs)
+            for r in resultados:
+                if r:
+                    archivos_a_insertar.append(r)
+
+        if archivos_a_insertar:
+            table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS}"
+            errores = bigquery_client.insert_rows_json(table_ref, archivos_a_insertar)
+
+            if errores:
+                logger.error(f"Errores al insertar archivos async: {errores}")
+                return False
+
+            logger.info(f"Se insertaron {len(archivos_a_insertar)} archivos nuevos (async).")
+        else:
+            logger.info("No hay archivos nuevos para insertar (async).")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Error en registrar_archivos_gcs_async: {str(e)}")
+        return False
+
+
+# ==========================
+# PUNTO DE ENTRADA de la Cloud Function
+# ==========================
+def carga_incremental(request):
+    """
+    Función principal que orquesta el proceso:
+    - Verifica y crea el Dataset y la Tabla en BigQuery.
+    - Registra los archivos de GCS encontrados que no estén ya registrados.
+    """
+    try:
+        logger.info("Inicio de ejecución de carga incremental...")
+
+        if not crear_dataset_y_tabla():
+            return ("Error al crear Dataset o Tabla", 500)
+
+        if not registrar_archivos_gcs():
+            return ("Error al registrar archivos de GCS", 500)
+
+        logger.info("Carga incremental completada exitosamente.")
+        return ("Carga incremental completada exitosamente.", 200)
+
+    except Exception as e:
+        logger.error(f"Error general en carga_incremental: {str(e)}")
+        return (f"Error: {str(e)}", 500)
