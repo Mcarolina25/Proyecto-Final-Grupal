@@ -237,74 +237,54 @@ google-cloud-bigquery
 
 ## Microservicio 2: `registro-archivos-gdrive`
 
-### Descripción
-
-Escanea una **carpeta compartida en Google Drive** y registra en BigQuery los archivos nuevos detectados, evitando duplicados.
-
-### Tabla de destino
-
-- **Dataset**: `Registro_Archivos`
-- **Tabla**: `archivos_en_gdrive`
-
-### Estructura de la tabla
-
-| Campo            | Tipo     | Descripción                         |
-|------------------|----------|-------------------------------------|
-| file_name        | STRING   | Nombre del archivo                  |
-| fecha_creacion   | TIMESTAMP| Fecha de creación del archivo       |
-| size_bytes       | INTEGER  | Tamaño en bytes                     |
-| mime_type        | STRING   | Tipo MIME del archivo               |
-| drive_file_id    | STRING   | ID del archivo en Google Drive      |
-| drive_web_link   | STRING   | URL de acceso al archivo            |
-
-### Variables importantes
-
-- **PROJECT_ID**: ID del proyecto GCP
-- **DATASET_ID**: `Registro_Archivos`
-- **TABLE_DRIVE**: `archivos_en_gdrive`
-- **FOLDER_ID**: `111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7`
-
-### Flujo de ejecución
-
-1. Verifica/crea el dataset y la tabla.
-2. Se conecta al API de Google Drive.
-3. Lista los archivos de la carpeta compartida.
-4. Verifica duplicados en BigQuery.
-5. Registra los archivos nuevos.
-
-### Requirements.txt
-
-```text
-Flask==2.2.5
-functions-framework
-google-cloud-bigquery
-google-api-python-client
-google-auth
-google-auth-httplib2
-google-auth-oauthlib
-```
-
-### Notas
-
-- No requiere Docker.
-- Usa autenticación de **Service Account** para Google Drive API.
-- La carpeta compartida debe tener permisos para `python-service-account@acme-987654.iam.gserviceaccount.com`.
+Este microservicio detecta archivos en una carpeta compartida de Google Drive y registra su información en una tabla de BigQuery.  
+Forma parte del ecosistema de sincronización y trazabilidad de archivos entre Google Drive y Google Cloud Storage.
 
 ---
 
-# Buenas Prácticas Seguidas
+## 🚀 Funcionalidad Principal
 
-- Código modularizado y limpio.
-- Manejo de errores robusto.
-- Uso de clientes oficiales de Google Cloud.
-- Implementación eficiente (Concurrente para GCS).
-- Compatible con despliegue automático en Cloud Run.
+- Detectar todos los archivos de la carpeta:  
+  [`https://drive.google.com/drive/folders/111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7`](https://drive.google.com/drive/folders/111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7)
+- Registrar en la tabla **`Registro_Archivos.archivos_en_gdrive`** la siguiente información:
+  - `gdrive_id` (STRING, **PRIMARY KEY**)
+  - `file_name` (STRING)
+  - `mime_type` (STRING)
+  - `created_time` (TIMESTAMP)
+  - `web_view_link` (STRING)
+  - `size_bytes` (INTEGER)
+  - `gdrive_path` (STRING)
+- Evitar duplicados (se consulta primero si ya existe el archivo antes de insertar).
 
-# Próximos Pasos (en pruebas)
+---
 
-- Implementar métricas y trazabilidad en BigQuery/Looker Studio.
-- Agregar Pub/Sub triggers para escaneo periódico automático.
-- Optimizar paralelismo dinámico según cantidad de archivos.
+## ⚙️ Configuración
+
+| Variable | Valor |
+|:---------|:------|
+| `PROJECT_ID` | `acme-987654` |
+| `DATASET_ID` | `Registro_Archivos` |
+| `TABLE_GDRIVE` | `archivos_en_gdrive` |
+| `FOLDER_ID` | `111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7` |
+
+---
+
+## 📑 Estructura del Proyecto
+
+- `main.py`: Contiene la lógica principal de conexión, consulta e inserción.
+- `requirements.txt`: Dependencias necesarias.
+
+---
+
+## 📦 Requisitos
+
+El archivo `requirements.txt` debe contener:
+
+```plaintext
+google-cloud-bigquery
+google-api-python-client
+google-auth
+
 
 ---
 
