@@ -10,32 +10,27 @@ PowerBI estará en Local conectado a la DB PostgreSQL y API del Recomendador.
 
 # 1. Visión general de la Arquitectura propuesta
 
-### Almacenamiento de datos crudos (Data Lake - Google Cloud Stora)
+### Almacenamiento de datos crudos (Data Lake Cliente - Google Cloud Storage)
 <p align="justify">
 
 </p>
 
-### Base de datos relacional (mySQL - Google Cloud SQL)
+### Base de datos relacional (mySQL - Google Cloud BigQuery)
 <p align="justify">
 
 </p>
 
-### Orquestador Apache Airflow (Google Cloud Composer - AirFlow)
+### Orquestador (Cloud Run + Cloud Scheduler)
 <p align="justify">
 
 </p>
 
-### Recomendador de restaurantes (Google CLoud Vertex AI)
+### Recomendador de restaurantes (Google Run + FastAPI)
 <p align="justify">
 
 </p>
 
-### API (FastAPI - Vertex AI)
-<p align="justify">
-
-</p>
-
-### Dashboard (PowerBI en conexion con API y CloudSQL)
+### Dashboard (PowerBI en conexion con Cloud BigQuery)
 <p align="justify">
 
 </p>
@@ -50,17 +45,17 @@ PowerBI estará en Local conectado a la DB PostgreSQL y API del Recomendador.
 
 ### Ingesta
 <p align="justify">
-Recibiríamos archivos JSON/CSV/PKL/Parquet de Google y Yelp (Data Lake del CLiente), ubicándolos en Google Cloud Storage (GCP). Cloud Composer con Apache Airflow se encargaría de orquestar y automatizar el flujo de tareas los scripts de ETL, reentrenamiento de modelos de ML y actualización de Base de datos mySQL en CloudSQL.
+Recibiríamos archivos JSON/CSV/PKL/Parquet de Google y Yelp (Data Lake del CLiente), ubicándolos en Google Cloud Storage (GCS). Cloud Run con Cloud Scheduller se encargaría de orquestar y automatizar el flujo de tareas los scripts de ETL, reentrenamiento de modelos de ML y actualización de Base de datos en BigQuery.
 </p>
 
 ### Transformación
 <p align="justify">
-Realizaríamos la limpieza, validación y normalización de los datos. Después, actualizaríamos CloudSQL. Opcionalmente, crearíamos tablas analíticas o un data warehouse adicional para consultas más especializadas.
+Realizaríamos la limpieza, validación y normalización de los datos extraidos del Data Lake del cliente almacenado en GCS. Después, actualizaríamos BigQuery. Crearíamos DataSets y Tablas en nuestro Data WareHouse en BigQuery para consultas futuras y otros procesos.
 </p>
 
 ### Entrenamiento
 <p align="justify">
-Lanzaríamos un DAG de Airflow que entrenaría o reentrenaría nuestros modelos. Leeríamos los datos de CloudSQL y guardaríamos el modelo final en un volumen en GCS por seguridad.
+Lanzaríamos un Microservicio con Cloud run y Cloud Scheduler que entrenaría o reentrenaría nuestros modelos con ML para el Recomendador. Leeríamos los datos de BigQuery y guardaríamos el modelo final en un volumen en GCS por seguridad.
 </p>
 
 ### Consumo
@@ -70,7 +65,7 @@ Con FastAPI hariamos las consultas al modelo entrenado para generar recomendacio
 
 ### Reentrenamiento continuo
 <p align="justify">
-Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, programaríamos en Airflow la re-ejecución del DAG para incorporar nuevos datos y reentrenar el modelo.
+Periódicamente se detectaran los nuevos archivos depositados en Cloud Storage a través de la programacion con Cloud Scheduler de la ejecución del Microservicio de Carga Incremental para luego ejecutar el microservicio de **Ejecución ETL** y posteriormente el de **Reentrenamiento de Modelo ML**.
 </p>
 
 ---
