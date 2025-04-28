@@ -170,28 +170,17 @@ Periódicamente bajo eventos de nuevos archivos depositados en Cloud Storage, pr
 
 ---
 
-# Microservicios de Registro de Archivos
+# Carga Incremental Automatizada
 
-Este repositorio contiene dos microservicios independientes desarrollados en **Python 3.9** para ejecutarse en **Cloud Run**, encargados de registrar archivos encontrados en:
+# 📦 Microservicio Carga Incremental - Google Drive ➔ GCS
 
-- **Google Cloud Storage (GCS)**
-- **Google Drive (Carpeta Compartida)**
-
-Cada microservicio registra los archivos encontrados en un **dataset centralizado en BigQuery** (`Registro_Archivos`), en distintas tablas.
-
----
-
-# Orquestación - Automatización
-
-# 📦 Microservicio Fusion GDrive ➔ GCS
-
-Este microservicio se encarga de sincronizar archivos desde una carpeta compartida en **Google Drive** hacia un bucket en **Google Cloud Storage (GCS)**, registrando toda la trazabilidad en **BigQuery**.
+Este microservicio se encarga de emular una proceso de carga incremental automatizado haciendo uso de Google Cloud Platform (GCP) y la Api de Google Drive con lo cual sincronizamos archivos desde una carpeta compartida en **Google Drive** hacia un bucket en **Google Cloud Storage (GCS)** (proceso para recrear la llegada periodica de archivos, a traves de una API externa, al DataLake del cliente emulado con **Cloud Storage**), registrando toda la trazabilidad en **BigQuery** y programando su ejecucion de forma periodica a través de **Cloud Scheduller**.
 
 ## 🚀 Funcionalidad
 
-1. **Validación y creación** de:
+1. **Validación y creación** de Datasets y Tablas:
    - Dataset en BigQuery (`Registro_Archivos`).
-   - Tablas:
+   - Tablas en BigQuery:
      - `archivos_en_gdrive`
      - `archivos_en_gcs`
      - `archivos_transferidos`
