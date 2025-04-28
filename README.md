@@ -183,108 +183,104 @@ Cada microservicio registra los archivos encontrados en un **dataset centralizad
 
 # Orquestación - Automatización
 
-## Microservicio 1: `registro-archivos-gcs`
+# 📦 Microservicio Fusion GDrive ➔ GCS
 
-### Descripción
+Este microservicio se encarga de sincronizar archivos desde una carpeta compartida en **Google Drive** hacia un bucket en **Google Cloud Storage (GCS)**, registrando toda la trazabilidad en **BigQuery**.
 
-Escanea un bucket de **Google Cloud Storage** bajo un prefijo específico (`Google/`) y registra en BigQuery los archivos nuevos que no hayan sido previamente registrados.
+## 🚀 Funcionalidad
 
-### Tabla de destino
+1. **Validación y creación** de:
+   - Dataset en BigQuery (`Registro_Archivos`).
+   - Tablas:
+     - `archivos_en_gdrive`
+     - `archivos_en_gcs`
+     - `archivos_transferidos`
+2. **Registro** de archivos detectados en:
+   - Carpeta de **Google Drive** (`archivos_en_gdrive`).
+   - Carpeta en **GCS** (`archivos_en_gcs`).
+3. **Transferencia** de archivos:
+   - Archivos que existen en GDrive y no en GCS son descargados y subidos al bucket GCS.
+   - Se registra cada transferencia exitosa en `archivos_transferidos`.
+4. **Actualización final**:
+   - Se vuelve a registrar el estado actualizado de la carpeta GCS para reflejar los archivos realmente existentes.
 
-- **Dataset**: `Registro_Archivos`
-- **Tabla**: `archivos_en_gcs`
+## 🛠️ Tecnologías y Librerías
 
-### Estructura de la tabla
+- **Google Cloud Storage** (`google-cloud-storage`)
+- **Google BigQuery** (`google-cloud-bigquery`)
+- **Google API Client** (`google-api-python-client`)
+- **Google Authentication Libraries** (`google-auth`, `google-auth-httplib2`, `google-auth-oauthlib`)
+- **Python 3.9+**
+- **Flask** (opcional para servir en Cloud Run)
 
-| Campo            | Tipo     | Descripción                         |
-|------------------|----------|-------------------------------------|
-| file_name        | STRING   | Nombre del archivo                  |
-| fecha_creacion   | TIMESTAMP| Fecha de creación del archivo       |
-| size_bytes       | INTEGER  | Tamaño en bytes                     |
-| mime_type        | STRING   | Tipo MIME del archivo               |
-| gcs_path         | STRING   | Ruta completa en GCS                |
+## 📄 Variables principales
 
-### Variables importantes
+| Variable         | Descripción                                               |
+|------------------|------------------------------------------------------------|
+| `PROJECT_ID`      | ID del proyecto en Google Cloud                           |
+| `DATASET_ID`      | Dataset en BigQuery para registros                         |
+| `TABLE_GDRIVE`    | Tabla que registra archivos encontrados en GDrive          |
+| `TABLE_GCS`       | Tabla que registra archivos encontrados en GCS             |
+| `TABLE_TRANSFERIDOS` | Tabla que registra archivos transferidos exitosamente  |
+| `BUCKET_NAME`     | Nombre del bucket de destino en GCS                        |
+| `DESTINATION_FOLDER` | Carpeta destino dentro del bucket en GCS               |
+| `FOLDER_ID`       | ID de la carpeta compartida en Google Drive                |
 
-- **PROJECT_ID**: ID del proyecto GCP
-- **DATASET_ID**: `Registro_Archivos`
-- **TABLE_GCS**: `archivos_en_gcs`
-- **BUCKET_NAME**: Nombre del bucket en GCS
-- **FOLDER_PREFIX**: Prefijo para buscar archivos (`Google/`)
-
-### Flujo de ejecución
-
-1. Verifica/crea el dataset y la tabla.
-2. Lista archivos bajo el prefijo definido.
-3. Verifica si ya están registrados.
-4. Registra los nuevos en batch de forma concurrente (**async**).
-
-### Requirements.txt
-
-```text
-Flask==2.2.5
-functions-framework
-google-cloud-storage
-google-cloud-bigquery
-```
-
-### Notas
-
-- No requiere Docker.
-- Usa autenticación mediante **Service Account** ya configurada en Cloud Run.
-
----
-
-## Microservicio 2: `registro-archivos-gdrive`
-
-Este microservicio detecta archivos en una carpeta compartida de Google Drive y registra su información en una tabla de BigQuery.  
-Forma parte del ecosistema de sincronización y trazabilidad de archivos entre Google Drive y Google Cloud Storage.
-
----
-
-## 🚀 Funcionalidad Principal
-
-- Detectar todos los archivos de la carpeta:  
-  [`https://drive.google.com/drive/folders/111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7`](https://drive.google.com/drive/folders/111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7)
-- Registrar en la tabla **`Registro_Archivos.archivos_en_gdrive`** la siguiente información:
-  - `gdrive_id` (STRING, **PRIMARY KEY**)
-  - `file_name` (STRING)
-  - `mime_type` (STRING)
-  - `created_time` (TIMESTAMP)
-  - `web_view_link` (STRING)
-  - `size_bytes` (INTEGER)
-  - `gdrive_path` (STRING)
-- Evitar duplicados (se consulta primero si ya existe el archivo antes de insertar).
-
----
-
-## ⚙️ Configuración
-
-| Variable | Valor |
-|:---------|:------|
-| `PROJECT_ID` | `acme-987654` |
-| `DATASET_ID` | `Registro_Archivos` |
-| `TABLE_GDRIVE` | `archivos_en_gdrive` |
-| `FOLDER_ID` | `111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7` |
-
----
-
-## 📑 Estructura del Proyecto
-
-- `main.py`: Contiene la lógica principal de conexión, consulta e inserción.
-- `requirements.txt`: Dependencias necesarias.
-
----
-
-## 📦 Requisitos
-
-El archivo `requirements.txt` debe contener:
+## 📝 Flujo de ejecución (`carga_incremental`)
 
 ```plaintext
+1. Verifica y crea Dataset y Tablas en BigQuery si no existen.
+2. Escanea Google Drive y registra archivos nuevos.
+3. Escanea GCS y registra archivos nuevos.
+4. Compara archivos de GDrive vs. GCS.
+5. Transfiere solo los archivos faltantes.
+6. Registra transferencias realizadas.
+7. Vuelve a registrar el estado actualizado de GCS.
+8. Devuelve respuesta de éxito o error.
+```
+
+## 🗂️ Estructura de las Tablas
+
+### `archivos_en_gdrive`
+- `gdrive_id` (STRING, REQUIRED)
+- `file_name` (STRING)
+- `mime_type` (STRING)
+- `created_time` (TIMESTAMP)
+- `web_view_link` (STRING)
+
+### `archivos_en_gcs`
+- `file_name` (STRING, REQUIRED)
+- `fecha_creacion` (TIMESTAMP)
+- `size_bytes` (INTEGER)
+- `mime_type` (STRING)
+- `gcs_path` (STRING)
+
+### `archivos_transferidos`
+- `file_name` (STRING, REQUIRED)
+- `gdrive_id` (STRING, REQUIRED)
+- `transfer_time` (TIMESTAMP)
+- `gcs_path` (STRING)
+
+## 📋 Instalación de dependencias (requirements.txt)
+
+```plaintext
+google-cloud-storage
 google-cloud-bigquery
 google-api-python-client
 google-auth
+google-auth-httplib2
+google-auth-oauthlib
+flask
+```
 
+## 📦 Despliegue implementado
+
+Se ha desplegado como servicio en **Cloud Run**, para este caso no se han configurado variables de entorno y los permisos de acceso a los servicios de **Drive**, **GCS**, y **BigQuery** se han proporcionado directamete a través de credenciales en formato .json.
+
+## 📢 Notas importantes
+
+- El microservicio se puede ejecutar múltiples veces y no creara duplicados.
+- Ignora carpetas o archivos no descargables (e.g., carpetas o documentos de Google).
+- El sistema maneja errores comunes como permisos 403 (`fileNotDownloadable`) sin detener el flujo.
 
 ---
-
