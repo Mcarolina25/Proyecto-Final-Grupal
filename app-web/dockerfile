@@ -1,0 +1,14 @@
+FROM python:3.9-slim
+WORKDIR /app-web
+COPY . /app-web
+RUN pip install flask gunicorn
+RUN pip install requests
+RUN pip install folium
+#CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8090"]
+CMD exec gunicorn --bind 0.0.0.0:8080 app:app
+
+
+
+
+
+

@@ -18,7 +18,7 @@ import re
 
 PROJECT_ID = 'acme-987654'
 LOCATION = "southamerica-east1" 
-service_account_path = 'C:/Data/json/acme-987654-c052039ac4cd.json'
+service_account_path = 'acme-987654-c052039ac4cd.json'
 
 bucket_name = "acme_storage"
 
@@ -262,10 +262,11 @@ def merge_sitios_records(df_sitios):
         WHEN MATCHED THEN
             UPDATE SET 
             target.avg_rating = source.avg_rating,
-            target.num_of_reviews = source.num_of_reviews  
+            target.num_of_reviews = source.num_of_reviews,
+            target.is_seafood = source.is_seafood  
         WHEN NOT MATCHED THEN
-            INSERT (name, address, gmap_id, description, latitude, longitude, category, avg_rating, num_of_reviews, hours, MISC, state, city) 
-            VALUES (source.name, source.address, source.gmap_id, source.description, source.latitude, source.longitude, source.category, source.avg_rating, source.num_of_reviews, source.hours, source.MISC, source.state, source.city)
+            INSERT (name, address, gmap_id, description, latitude, longitude, category, avg_rating, num_of_reviews, hours, MISC, state, city,is_seafood) 
+            VALUES (source.name, source.address, source.gmap_id, source.description, source.latitude, source.longitude, source.category, source.avg_rating, source.num_of_reviews, source.hours, source.MISC, source.state, source.city, source.is_seafood)
         """
 
         print("query is: ",query)
@@ -564,16 +565,18 @@ def etl_tip_json_file(file_path):
 
 def identify_kind_of_restaurant(ref):
     #print(ref)
+    #ref = str(ref).lower()
+    
     if not ref:
-        return 0
-    value =  [item for item in ref if "rest" in item ]    
-    if not value:
-        #No es restaurante
         return 2
-    value =  [item for item in ref if es_maritimo(item)]
-    if not value:
-        return 0    
-    return 1
+    string_cat = str(ref).lower()
+    if('rest' not in string_cat):
+        return 2
+    
+    if es_maritimo(string_cat) == True:
+        return 1
+     
+    return 0
 
 def identify_city(address):
     if not address:
@@ -640,7 +643,8 @@ def etl_sitios_json_file(file_path):
     df_sitios = df_sitios.drop_duplicates(['name','gmap_id','latitude','longitude','address'])
     df_sitios = df_sitios.drop(columns=['price','url','relative_results'])
 
-    df_sitios['is_seafood'] = df_sitios.category.apply(identify_kind_of_restaurant)    
+    df_sitios['is_seafood'] = df_sitios.category.apply(identify_kind_of_restaurant)  
+    print("QUe valores tenemos ",df_sitios['is_seafood'].unique())  
     df_sitios = df_sitios[df_sitios["is_seafood"] != 2]
 
     df_sitios['city'] = df_sitios.address.apply(identify_city)

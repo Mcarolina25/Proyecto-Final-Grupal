@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACME Restaurant</title>
+    <style>
+        body {
+            font-family: 'Georgia', serif;
+            margin: 0;
+            padding: 0;
+            background: #e6f7ff;
+            color: #00264d;
+        }
+        header {
+            background: #004080;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        nav {
+            text-align: center;
+            background: #003366;
+            padding: 10px 0;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin: 0 15px;
+            font-size: 1.2em;
+            transition: color 0.3s;
+        }
+        nav a:hover {
+            color: #ffcc66;
+        }
+        .hero {
+            background: url('https://example.com/maritime-image.jpg') no-repeat center center/cover;
+            height: 50vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            color: white;
+            text-shadow: 2px 2px 8px #000000;
+        }
+        .hero h2 {
+            font-size: 2.5em;
+            margin: 0;
+        }
+        .content {
+            padding: 40px 20px;
+            max-width: 800px;
+            margin: auto;
+            text-align: center;
+        }
+        .content h3 {
+            font-size: 2em;
+            margin-bottom: 20px;
+        }
+        .content p {
+            font-size: 1.2em;
+            line-height: 1.6;
+        }
+        footer {
+            background: #00264d;
+            color: white;
+            text-align: center;
+            padding: 10px 0;
+        }
+        footer p {
+            margin: 0;
+            font-size: 0.9em;
+        }
+        img {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 125px;
+            height: auto;
+            border-radius: 8px; /* Para bordes redondeados, opcional */
+        }
+
+    </style>
+</head>
+<body>
+    <header>
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Descripción de la imagen">
+        <h1>ADSAC</h1>
+        <p>Explore su mejor ubicación</p>
+    </header>
+    <div class="hero">        
+       
+            <form method="POST" action="/submit">
+                <h1>Selecione la ciudad de su nueva sucursal</h1>
+                <p>
+                    <select name="selected_option">
+                        {% for option in options %}
+                        <option value="{{ option }}">{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit">Recomendar</button>
+                </p>
+            </form>
+        
+    </div>
+    <div class="content" id="about">
+        <h3>Acerca de nosotros</h3>
+        <p>Ayudamos a empresas a transformar datos en conocimientos prácticos y estrategias accionables.</p>
+    </div>
+    <footer>
+        <p>&copy; 2025 ADSAC Consulting. Todos los derechos reservados.</p>
+    </footer>
+</body>
+</html>
