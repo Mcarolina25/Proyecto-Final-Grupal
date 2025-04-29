@@ -1,0 +1,150 @@
+# ==========================
+# MÓDULO: Microservicio Compilar JSON
+# ==========================
+
+# Librerías necesarias
+from google.cloud import bigquery, storage
+import pandas as pd
+import json
+import logging
+import os
+from datetime import datetime
+from io import BytesIO
+
+# ==========================
+# Configuración de Logging
+# ==========================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==========================
+# Variables Globales de Configuración
+# ==========================
+PROJECT_ID = "acme-987654"
+DATASET_ID = "Registro_Archivos"
+TABLE_GCS_ESTADOS = "archivos_en_gcs_estados"
+BUCKET_NAME = "acme_storage"
+ROOT_FOLDER = "Google/Estados"
+CARPETA_FILTRO = "California"  # Solo procesar esta carpeta
+
+# ==========================
+# Funciones de Inicialización de Clientes
+# ==========================
+
+def get_bigquery_client():
+    return bigquery.Client(project=PROJECT_ID)
+
+def get_storage_client():
+    return storage.Client(project=PROJECT_ID)
+
+# ==========================
+# Funciones Principales
+# ==========================
+
+def compilar_archivos_por_carpeta():
+    try:
+        bigquery_client = get_bigquery_client()
+        storage_client = get_storage_client()
+        bucket = storage_client.bucket(BUCKET_NAME)
+
+        # 1. Consultamos archivos pendientes de compilar en carpeta específica
+        query = f"""
+            SELECT file_name, folder_name
+            FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS_ESTADOS}`
+            WHERE incluido_en_compilado = FALSE AND folder_name = @carpeta
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("carpeta", "STRING", CARPETA_FILTRO)
+            ]
+        )
+        resultados = bigquery_client.query(query, job_config=job_config).result()
+
+        archivos_por_carpeta = {}
+        for row in resultados:
+            carpeta = row.folder_name
+            archivos_por_carpeta.setdefault(carpeta, []).append(row.file_name)
+
+        logger.info(f"Se encontraron {len(archivos_por_carpeta)} carpetas con archivos pendientes.")
+
+        # 2. Procesamos cada carpeta
+        for carpeta, archivos in archivos_por_carpeta.items():
+            datos_unificados = []
+
+            for archivo in archivos:
+                blob_path = f"{ROOT_FOLDER}/{carpeta}/{archivo}"
+                blob = bucket.blob(blob_path)
+                contenido = blob.download_as_text()
+                for i, linea in enumerate(contenido.strip().splitlines(), 1):
+                    try:
+                        datos_unificados.append(json.loads(linea))
+                    except Exception as e:
+                        logger.warning(f"⚠️ Línea {i} malformada en {archivo}, se omitirá: {str(e)}")
+
+            if datos_unificados:
+                # Creamos el JSON NDJSON
+                timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+                nombre_compilado = f"compilado_{carpeta}_{timestamp}.json"
+                ruta_compilado = f"{ROOT_FOLDER}/{carpeta}/{nombre_compilado}"
+
+                # Subimos el compilado a GCS en formato NDJSON
+                contenido_ndjson = "\n".join([json.dumps(d, ensure_ascii=False) for d in datos_unificados])
+                blob_compilado = bucket.blob(ruta_compilado)
+                blob_compilado.upload_from_string(contenido_ndjson, content_type="application/json")
+
+                logger.info(f"✅ Compilado generado: {ruta_compilado}")
+
+                # Actualizamos registros en BigQuery
+                actualizar_incluido_en_compilado(archivos, carpeta)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error en compilar_archivos_por_carpeta: {str(e)}")
+        return False
+
+# ==========================
+# Funciones Auxiliares
+# ==========================
+
+def actualizar_incluido_en_compilado(archivos, carpeta):
+    try:
+        bigquery_client = get_bigquery_client()
+        table_id = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS_ESTADOS}"
+
+        for archivo in archivos:
+            query = f"""
+                UPDATE `{table_id}`
+                SET incluido_en_compilado = TRUE
+                WHERE file_name = @file_name AND folder_name = @folder_name
+            """
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("file_name", "STRING", archivo),
+                    bigquery.ScalarQueryParameter("folder_name", "STRING", carpeta)
+                ]
+            )
+            bigquery_client.query(query, job_config=job_config).result()
+
+        logger.info(f"Actualizados {len(archivos)} archivos como 'incluido_en_compilado'.")
+
+    except Exception as e:
+        logger.error(f"❌ Error actualizando registros en BigQuery: {str(e)}")
+
+# ==========================
+# Punto de Entrada para Cloud Run
+# ==========================
+
+def compilar_json(request):
+    try:
+        logger.info("Inicio de ejecución del Microservicio Compilar JSON...")
+
+        if not compilar_archivos_por_carpeta():
+            return ("Error durante la compilación de archivos.", 500)
+
+        logger.info("✅ Microservicio Compilar JSON completado exitosamente.")
+        return ("Microservicio Compilar JSON completado exitosamente.", 200)
+
+    except Exception as e:
+        logger.error(f"Error general en compilar_json: {str(e)}")
+        return (f"Error: {str(e)}", 500)
