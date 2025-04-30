@@ -1,0 +1,168 @@
+# ==========================
+# MÓDULO: Sincronizador de Archivos GDrive -> GCS (MEJORADO)
+# ==========================
+
+# Librerías necesarias
+from google.cloud import bigquery, storage
+import google.auth
+from googleapiclient.discovery import build
+import io
+import logging
+from googleapiclient.http import MediaIoBaseDownload
+from datetime import datetime
+
+# ==========================
+# Configuración de Logging
+# ==========================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==========================
+# Variables Globales de Configuración
+# ==========================
+PROJECT_ID = "acme-987654"
+DATASET_ID = "Registro_Archivos"
+TABLE_GDRIVE = "archivos_en_gdrive"
+TABLE_GCS = "archivos_en_gcs"
+TABLE_TRANSFERIDOS = "archivos_transferidos"
+BUCKET_NAME = "acme_storage"
+DESTINATION_FOLDER = "Google/Sitios"
+
+# ==========================
+# Funciones de inicialización de clientes
+# ==========================
+
+def get_bigquery_client():
+    return bigquery.Client(project=PROJECT_ID)
+
+def get_storage_client():
+    return storage.Client(project=PROJECT_ID)
+
+def get_drive_service():
+    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/drive"])
+    return build("drive", "v3", credentials=credentials)
+
+# ==========================
+# Función para crear tabla de transferidos
+# ==========================
+
+def crear_tabla_transferidos():
+    try:
+        client = get_bigquery_client()
+        table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_TRANSFERIDOS}"
+
+        try:
+            client.get_table(table_ref)
+            logger.info(f"✅ Tabla '{TABLE_TRANSFERIDOS}' ya existe.")
+        except Exception:
+            schema = [
+                bigquery.SchemaField("file_name", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("gdrive_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("transfer_time", "TIMESTAMP"),
+                bigquery.SchemaField("gcs_path", "STRING")
+            ]
+            table = bigquery.Table(table_ref, schema=schema)
+            client.create_table(table)
+            logger.info(f"📂 Tabla '{TABLE_TRANSFERIDOS}' creada exitosamente.")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error creando tabla archivos_transferidos: {str(e)}")
+        return False
+
+# ==========================
+# Función principal de transferencia
+# ==========================
+
+def transferencia_archivos():
+    try:
+        bigquery_client = get_bigquery_client()
+        storage_client = get_storage_client()
+        drive_service = get_drive_service()
+
+        bucket = storage_client.bucket(BUCKET_NAME)
+
+        # 1. Obtener archivos de GDrive
+        query_gdrive = f"SELECT gdrive_id, file_name FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GDRIVE}`"
+        archivos_drive = {row.gdrive_id: row.file_name for row in bigquery_client.query(query_gdrive)}
+
+        # 2. Obtener archivos de GCS
+        query_gcs = f"SELECT file_name FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS}`"
+        archivos_gcs = {row.file_name for row in bigquery_client.query(query_gcs)}
+
+        archivos_a_transferir = [
+            (gdrive_id, file_name)
+            for gdrive_id, file_name in archivos_drive.items()
+            if file_name not in archivos_gcs
+        ]
+
+        logger.info(f"Archivos a transferir: {len(archivos_a_transferir)}")
+
+        archivos_transferidos = []
+
+        for gdrive_id, file_name in archivos_a_transferir:
+            try:
+                # Verificar si el archivo YA existe físicamente en GCS
+                blob = bucket.blob(f"{DESTINATION_FOLDER}/{file_name}")
+                if blob.exists(storage_client):
+                    logger.info(f"📂 Archivo ya existe en GCS, se omite transferencia: {file_name}")
+                    continue
+
+                # Descargar desde Drive
+                request = drive_service.files().get_media(fileId=gdrive_id)
+                file_stream = io.BytesIO()
+                downloader = MediaIoBaseDownload(file_stream, request)
+
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+
+                file_stream.seek(0)
+
+                # Subir a GCS
+                blob.upload_from_file(file_stream)
+
+                archivos_transferidos.append({
+                    "file_name": file_name,
+                    "gdrive_id": gdrive_id,
+                    "transfer_time": datetime.utcnow().isoformat(),
+                    "gcs_path": f"gs://{BUCKET_NAME}/{DESTINATION_FOLDER}/{file_name}"
+                })
+                logger.info(f"✅ Transferido: {file_name}")
+
+            except Exception as ex:
+                logger.error(f"❌ Error transfiriendo {file_name}: {str(ex)}")
+
+        if archivos_transferidos:
+            table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_TRANSFERIDOS}"
+            errores = bigquery_client.insert_rows_json(table_ref, archivos_transferidos)
+            if errores:
+                logger.error(f"Errores al registrar transferencias: {errores}")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Error general en transferencia_archivos: {str(e)}")
+        return False
+
+# ==========================
+# PUNTO DE ENTRADA de la Cloud Function
+# ==========================
+
+def carga_incremental(request):
+    try:
+        logger.info("Inicio de transferencia de archivos...")
+
+        if not crear_tabla_transferidos():
+            return ("Error al crear tabla de transferidos", 500)
+
+        if not transferencia_archivos():
+            return ("Error en transferencia de archivos", 500)
+
+        logger.info("Transferencia completada exitosamente.")
+        return ("Transferencia completada exitosamente.", 200)
+
+    except Exception as e:
+        logger.error(f"Error general en carga_incremental: {str(e)}")
+        return (f"Error: {str(e)}", 500)
