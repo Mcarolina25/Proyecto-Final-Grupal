@@ -1,0 +1,162 @@
+# ==========================
+# MÓDULO: Microservicio Extract Archivos GCS Estados
+# ==========================
+
+# Librerías necesarias
+from google.cloud import bigquery, storage
+import logging
+import os
+from datetime import datetime
+
+# ==========================
+# Configuración de Logging
+# ==========================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==========================
+# Variables Globales de Configuración
+# ==========================
+PROJECT_ID = "acme-987654"
+DATASET_ID = "Registro_Archivos"
+TABLE_GCS_ESTADOS = "archivos_en_gcs_estados"
+BUCKET_NAME = "acme_storage"
+DESTINATION_FOLDER = "Google/Estados"
+
+# ==========================
+# Funciones de Inicialización de Clientes
+# ==========================
+
+def get_bigquery_client():
+    return bigquery.Client(project=PROJECT_ID)
+
+def get_storage_client():
+    return storage.Client(project=PROJECT_ID)
+
+# ==========================
+# Funciones Auxiliares
+# ==========================
+
+def crear_dataset_y_tabla_estados():
+    try:
+        client = get_bigquery_client()
+
+        # Crear Dataset si no existe
+        dataset_ref = f"{PROJECT_ID}.{DATASET_ID}"
+        try:
+            client.get_dataset(dataset_ref)
+            logger.info(f"✅ Dataset '{DATASET_ID}' ya existe.")
+        except Exception:
+            dataset = bigquery.Dataset(dataset_ref)
+            dataset.location = "US"
+            client.create_dataset(dataset)
+            logger.info(f"📁 Dataset '{DATASET_ID}' creado exitosamente.")
+
+        # Crear Tabla archivos_en_gcs_estados
+        try:
+            client.get_table(f"{dataset_ref}.{TABLE_GCS_ESTADOS}")
+            logger.info(f"✅ Tabla '{TABLE_GCS_ESTADOS}' ya existe.")
+        except Exception:
+            schema = [
+                bigquery.SchemaField("file_name", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("folder_name", "STRING"),
+                bigquery.SchemaField("fecha_creacion", "TIMESTAMP"),
+                bigquery.SchemaField("size_bytes", "INTEGER"),
+                bigquery.SchemaField("mime_type", "STRING"),
+                bigquery.SchemaField("gcs_path", "STRING"),
+                bigquery.SchemaField("incluido_en_compilado", "BOOLEAN", mode="REQUIRED")
+            ]
+            table = bigquery.Table(f"{dataset_ref}.{TABLE_GCS_ESTADOS}", schema=schema)
+            client.create_table(table)
+            logger.info(f"📂 Tabla '{TABLE_GCS_ESTADOS}' creada exitosamente.")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error creando dataset o tabla: {str(e)}")
+        return False
+
+# ==========================
+# Funciones Principales
+# ==========================
+
+def registrar_archivos_en_gcs_estados():
+    try:
+        storage_client = get_storage_client()
+        bigquery_client = get_bigquery_client()
+
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blobs = list(bucket.list_blobs(prefix=DESTINATION_FOLDER))
+
+        archivos_a_insertar = []
+        for blob in blobs:
+            file_name = os.path.basename(blob.name)
+            if file_name == '':
+                continue
+
+            folder_name = os.path.dirname(blob.name.replace(DESTINATION_FOLDER + '/', '', 1))
+
+            query = f"""
+                SELECT COUNT(1) as cantidad
+                FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS_ESTADOS}`
+                WHERE file_name = @file_name AND folder_name = @folder_name
+            """
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("file_name", "STRING", file_name),
+                    bigquery.ScalarQueryParameter("folder_name", "STRING", folder_name)
+                ]
+            )
+            results = list(bigquery_client.query(query, job_config=job_config).result())
+
+            if results[0].cantidad == 0:
+                archivos_a_insertar.append({
+                    "file_name": file_name,
+                    "folder_name": folder_name,
+                    "fecha_creacion": blob.time_created.isoformat(),
+                    "size_bytes": blob.size,
+                    "mime_type": blob.content_type,
+                    "gcs_path": f"gs://{BUCKET_NAME}/{blob.name}",
+                    "incluido_en_compilado": False
+                })
+
+        if archivos_a_insertar:
+            table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS_ESTADOS}"
+            errores = bigquery_client.insert_rows_json(table_ref, archivos_a_insertar)
+            if errores:
+                logger.error(f"Errores insertando archivos en GCS Estados: {errores}")
+
+        logger.info(f"Archivos registrados: {len(archivos_a_insertar)}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error registrando archivos de GCS Estados: {str(e)}")
+        return False
+
+# ==========================
+# PUNTO DE ENTRADA
+# ==========================
+
+def carga_incremental(request):
+    try:
+        logger.info("Inicio de ejecución de Microservicio Extract...")
+
+        if not crear_dataset_y_tabla_estados():
+            return ("Error creando dataset o tabla.", 500)
+
+        if not registrar_archivos_en_gcs_estados():
+            return ("Error registrando archivos de GCS Estados.", 500)
+
+        logger.info("✅ Microservicio Extract completado exitosamente.")
+        return ("Microservicio Extract completado exitosamente.", 200)
+
+    except Exception as e:
+        logger.error(f"Error general en carga_incremental: {str(e)}")
+        return (f"Error: {str(e)}", 500)
+
+
+# requirements:
+# functions-framework
+# google-cloud-storage
+# google-cloud-bigquery
+
