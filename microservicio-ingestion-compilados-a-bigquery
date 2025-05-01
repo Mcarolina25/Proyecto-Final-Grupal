@@ -1,0 +1,95 @@
+import logging
+import json
+from flask import Request, make_response
+from google.cloud import storage, bigquery
+from google.api_core.exceptions import NotFound
+
+# ————— Configuración —————
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+ROOT_FOLDER    = "Google/Estados"
+COMPI_PREFIX   = "compilado_"
+COMPI_EXT      = ".json"
+BQ_DATASET     = "Raw_test"
+BQ_TABLE       = "Estados"
+
+# Esquema fijo: sólo estos 6 campos
+BQ_SCHEMA = [
+    bigquery.SchemaField("user_id", "STRING"),
+    bigquery.SchemaField("name",    "STRING"),
+    bigquery.SchemaField("time",    "STRING"),
+    bigquery.SchemaField("rating",  "FLOAT"),
+    bigquery.SchemaField("text",    "STRING"),
+    bigquery.SchemaField("gmap_id", "STRING"),
+]
+
+def ingest(request: Request):
+    """
+    1) Filtra sólo eventos OBJECT_FINALIZE para
+       Google/Estados/<Estado>/compilado_<Estado>.json
+    2) Asegura dataset+tabla en BQ
+    3) Lanza LoadJob con ignore_unknown_values
+    """
+    try:
+        evt = request.get_json(force=True)
+        bucket_name = evt.get("bucket")
+        blob_name   = evt.get("name")
+        logger.info(f"▶️ Evento: gs://{bucket_name}/{blob_name}")
+
+        # 1) filtro de ruta y nombre
+        if not bucket_name or not blob_name:
+            return make_response("Bad Request", 400)
+        if not blob_name.startswith(f"{ROOT_FOLDER}/"):
+            return make_response("Ignored", 200)
+        parts = blob_name.split("/")
+        # esperamos ["Google","Estados","<Estado>","compilado_<Estado>.json"]
+        if len(parts) != 4:
+            return make_response("Ignored", 200)
+        estado = parts[2]
+        expected = f"{COMPI_PREFIX}{estado}{COMPI_EXT}"
+        if parts[3] != expected:
+            return make_response("Ignored", 200)
+
+        # 2) Cliente BQ y GCS
+        bq = bigquery.Client()
+        ds_ref = bq.dataset(BQ_DATASET)
+        # dataset
+        try:
+            bq.get_dataset(ds_ref)
+            logger.info(f"✅ Dataset '{BQ_DATASET}' ya existe.")
+        except NotFound:
+            bq.create_dataset(bigquery.Dataset(ds_ref))
+            logger.info(f"📂 Dataset '{BQ_DATASET}' creado.")
+        # tabla
+        tbl_ref = ds_ref.table(BQ_TABLE)
+        try:
+            bq.get_table(tbl_ref)
+            logger.info(f"✅ Tabla '{BQ_TABLE}' ya existe.")
+        except NotFound:
+            table = bigquery.Table(tbl_ref, schema=BQ_SCHEMA)
+            bq.create_table(table)
+            logger.info(f"📂 Tabla '{BQ_TABLE}' creada con esquema fijo.")
+
+        # 3) Load Job
+        uri = f"gs://{bucket_name}/{blob_name}"
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+            schema=BQ_SCHEMA,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+            ignore_unknown_values=True,      # <--- aquí omitimos "pics" u otros
+        )
+        logger.info(f"🚀 Iniciando LoadJob: {uri} → {BQ_DATASET}.{BQ_TABLE}")
+        load_job = bq.load_table_from_uri(uri, tbl_ref, job_config=job_config)
+        load_job.result()  # espera
+        logger.info("✅ LoadJob completado con éxito.")
+        return make_response("OK", 200)
+
+    except Exception as e:
+        logger.error(f"❌ Error en ingest: {e}", exc_info=True)
+        return make_response(f"Error interno: {e}", 500)
+
+# requirements.txt
+# Flask>=2.0.0
+# google-cloud-storage>=2.0.0
+# google-cloud-bigquery>=3.0.0
