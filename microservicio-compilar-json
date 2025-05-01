@@ -1,150 +1,176 @@
 # ==========================
-# MÓDULO: Microservicio Compilar JSON
+# Microservicio Compilar JSON Dinámico sin duplicados
+# Marca metadata “processed” en crudos en lugar de renombrar
+# Además llama al microservicio de ingestión al terminar
 # ==========================
 
-# Librerías necesarias
-from google.cloud import bigquery, storage
-import pandas as pd
-import json
 import logging
-import os
-from datetime import datetime
-from io import BytesIO
+import json
+import requests
+from flask import Request, make_response
+from google.cloud import storage
+from google.api_core.exceptions import NotFound
 
-# ==========================
-# Configuración de Logging
-# ==========================
+# Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==========================
-# Variables Globales de Configuración
-# ==========================
-PROJECT_ID = "acme-987654"
-DATASET_ID = "Registro_Archivos"
-TABLE_GCS_ESTADOS = "archivos_en_gcs_estados"
-BUCKET_NAME = "acme_storage"
-ROOT_FOLDER = "Google/Estados"
-CARPETA_FILTRO = "California"  # Solo procesar esta carpeta
+# Parámetros globales
+ROOT_FOLDER      = "Google/Estados"  # Carpeta raíz de estados
+COMPILADO_PREFIX = "compilado_"      # Prefijo para nombre de compilado
+COMPILADO_EXT    = ".json"           # Extensión del compilado
+METADATA_KEY     = "processed"       # Clave de metadata a marcar
+METADATA_VALUE   = "true"            # Valor de metadata cuando se procesa
 
-# ==========================
-# Funciones de Inicialización de Clientes
-# ==========================
+# URL del microservicio de ingestión (colocar directamente)
+INGESTION_URL = (
+    "https://microservicio-ingestion-compilados-a-bigquery-"
+    "113694561673.southamerica-east1.run.app"
+)
 
-def get_bigquery_client():
-    return bigquery.Client(project=PROJECT_ID)
 
-def get_storage_client():
-    return storage.Client(project=PROJECT_ID)
+def get_storage_client() -> storage.Client:
+    """Inicializa y devuelve un cliente de Cloud Storage."""
+    return storage.Client()
 
-# ==========================
-# Funciones Principales
-# ==========================
 
-def compilar_archivos_por_carpeta():
+def compilar_json(request: Request):
+    """
+    Handler HTTP de Cloud Run para eventos OBJECT_FINALIZE de GCS.
+    1) Filtra blobs bajo ROOT_FOLDER/<Estado>/<archivo>.json
+    2) Extrae <Estado> y <archivo>
+    3) Omite si ya tiene metadata processed=true
+    4) Carga (o crea) compilado_<Estado>.json
+    5) Lee y parsea el crudo, deduplica (user_id, time, gmap_id)
+    6) Informa conteos inicial, duplicados, añadidos y final
+    7) Actualiza el compilado NDJSON
+    8) Actualiza metadata processed=true en el crudo
+    9) Notifica al microservicio de ingestión mediante POST HTTP
+    """
     try:
-        bigquery_client = get_bigquery_client()
-        storage_client = get_storage_client()
-        bucket = storage_client.bucket(BUCKET_NAME)
+        # 1) Leer y validar evento
+        event       = request.get_json(force=True)
+        bucket_name = event.get("bucket")
+        blob_name   = event.get("name")
+        if not bucket_name or not blob_name:
+            logger.warning("⚠️ Evento inválido: faltan 'bucket' o 'name'.")
+            return make_response("Bad Request: falta bucket/name", 400)
+        logger.info(f"▶️ Evento: gs://{bucket_name}/{blob_name}")
 
-        # 1. Consultamos archivos pendientes de compilar en carpeta específica
-        query = f"""
-            SELECT file_name, folder_name
-            FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS_ESTADOS}`
-            WHERE incluido_en_compilado = FALSE AND folder_name = @carpeta
-        """
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("carpeta", "STRING", CARPETA_FILTRO)
-            ]
-        )
-        resultados = bigquery_client.query(query, job_config=job_config).result()
+        # 2) Filtrar ruta
+        if not blob_name.startswith(f"{ROOT_FOLDER}/"):
+            return make_response("Ignored", 200)
 
-        archivos_por_carpeta = {}
-        for row in resultados:
-            carpeta = row.folder_name
-            archivos_por_carpeta.setdefault(carpeta, []).append(row.file_name)
+        # 3) Extraer estado y nombre de crudo
+        parts = blob_name.split("/", 3)
+        if len(parts) < 4:
+            return make_response("Ignored", 200)
+        _, _, estado, file_name = parts
 
-        logger.info(f"Se encontraron {len(archivos_por_carpeta)} carpetas con archivos pendientes.")
+        # Ignorar compilado
+        compiled_name = f"{COMPILADO_PREFIX}{estado}{COMPILADO_EXT}"
+        if file_name == compiled_name:
+            return make_response("Ignored", 200)
 
-        # 2. Procesamos cada carpeta
-        for carpeta, archivos in archivos_por_carpeta.items():
-            datos_unificados = []
+        # 4) Inicializar cliente y obtener blob
+        client = get_storage_client()
+        bucket = client.bucket(bucket_name)
+        blob   = bucket.blob(blob_name)
 
-            for archivo in archivos:
-                blob_path = f"{ROOT_FOLDER}/{carpeta}/{archivo}"
-                blob = bucket.blob(blob_path)
-                contenido = blob.download_as_text()
-                for i, linea in enumerate(contenido.strip().splitlines(), 1):
-                    try:
-                        datos_unificados.append(json.loads(linea))
-                    except Exception as e:
-                        logger.warning(f"⚠️ Línea {i} malformada en {archivo}, se omitirá: {str(e)}")
+        # 5) Verificar existencia y metadata processed
+        try:
+            blob.reload()
+        except NotFound:
+            logger.info("ℹ️ Blob no existe; tal vez ya procesado. Ignorando.")
+            return make_response("Ignored", 200)
+        md = blob.metadata or {}
+        if md.get(METADATA_KEY) == METADATA_VALUE:
+            logger.info("ℹ️ Ya procesado (metadata). Ignorando.")
+            return make_response("Ignored", 200)
 
-            if datos_unificados:
-                # Creamos el JSON NDJSON
-                timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
-                nombre_compilado = f"compilado_{carpeta}_{timestamp}.json"
-                ruta_compilado = f"{ROOT_FOLDER}/{carpeta}/{nombre_compilado}"
+        # 6) Preparar blob de compilado
+        carpeta_path  = f"{ROOT_FOLDER}/{estado}"
+        comp_blob     = bucket.blob(f"{carpeta_path}/{compiled_name}")
 
-                # Subimos el compilado a GCS en formato NDJSON
-                contenido_ndjson = "\n".join([json.dumps(d, ensure_ascii=False) for d in datos_unificados])
-                blob_compilado = bucket.blob(ruta_compilado)
-                blob_compilado.upload_from_string(contenido_ndjson, content_type="application/json")
+        # 7) Cargar compilado previo
+        seen_keys = set()
+        existing_lines = []
+        try:
+            prev_text = comp_blob.download_as_text()
+            for ln in prev_text.splitlines():
+                existing_lines.append(ln)
+                try:
+                    obj_prev = json.loads(ln)
+                    key = (obj_prev.get("user_id"), obj_prev.get("time"), obj_prev.get("gmap_id"))
+                    seen_keys.add(key)
+                except Exception:
+                    pass
+            initial_count = len(existing_lines)
+            logger.info(f"ℹ️ '{compiled_name}' existente con {initial_count} registros.")
+        except NotFound:
+            initial_count = 0
+            logger.info(f"ℹ️ No existe '{compiled_name}'; iniciando con 0 registros.")
 
-                logger.info(f"✅ Compilado generado: {ruta_compilado}")
+        # 8) Descargar y parsear crudo
+        raw_text = blob.download_as_text()
+        nuevos = []
+        for i, line in enumerate(raw_text.splitlines(), start=1):
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                nuevos.append(json.loads(text))
+            except Exception as e:
+                logger.warning(f"Línea {i} malformada en {file_name}: {e}")
+        total_raw = len(nuevos)
+        logger.info(f"ℹ️ '{file_name}' tiene {total_raw} registros JSON válidos.")
 
-                # Actualizamos registros en BigQuery
-                actualizar_incluido_en_compilado(archivos, carpeta)
+        # 9) Filtrar duplicados
+        appended, duplicates = [], 0
+        for obj in nuevos:
+            key = (obj.get("user_id"), obj.get("time"), obj.get("gmap_id"))
+            if None in key or key not in seen_keys:
+                appended.append(obj)
+                seen_keys.add(key)
+            else:
+                duplicates += 1
+        new_count = len(appended)
+        logger.info(f"ℹ️ Duplicados omitidos: {duplicates}")
+        logger.info(f"ℹ️ Nuevos únicos a añadir: {new_count}")
 
-        return True
-
-    except Exception as e:
-        logger.error(f"❌ Error en compilar_archivos_por_carpeta: {str(e)}")
-        return False
-
-# ==========================
-# Funciones Auxiliares
-# ==========================
-
-def actualizar_incluido_en_compilado(archivos, carpeta):
-    try:
-        bigquery_client = get_bigquery_client()
-        table_id = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS_ESTADOS}"
-
-        for archivo in archivos:
-            query = f"""
-                UPDATE `{table_id}`
-                SET incluido_en_compilado = TRUE
-                WHERE file_name = @file_name AND folder_name = @folder_name
-            """
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("file_name", "STRING", archivo),
-                    bigquery.ScalarQueryParameter("folder_name", "STRING", carpeta)
-                ]
+        # 10) Actualizar compilado
+        if new_count > 0:
+            new_lines = [json.dumps(o, ensure_ascii=False) for o in appended]
+            comp_blob.upload_from_string(
+                "\n".join(existing_lines + new_lines),
+                content_type="application/json"
             )
-            bigquery_client.query(query, job_config=job_config).result()
+        else:
+            logger.info("ℹ️ Sin nuevos registros; compilado sin cambios.")
+        logger.info(f"✅ '{compiled_name}' final con {initial_count + new_count} registros.")
 
-        logger.info(f"Actualizados {len(archivos)} archivos como 'incluido_en_compilado'.")
+        # 11) Marcar metadata
+        md[METADATA_KEY] = METADATA_VALUE
+        blob.metadata    = md
+        blob.patch()
+        logger.info(f"🔖 Metadata '{METADATA_KEY}={METADATA_VALUE}' aplicada a '{file_name}'.")
+
+        # 12) Notificar microservicio de ingestión
+        try:
+            payload = {"bucket": bucket_name, "name": f"{carpeta_path}/{compiled_name}"}
+            response = requests.post(INGESTION_URL, json=payload)
+            response.raise_for_status()
+            logger.info("📤 Notificación de ingestión enviada correctamente.")
+        except Exception as e:
+            logger.error(f"❌ Error notificando ingestión: {e}")
+
+        return make_response("OK", 200)
 
     except Exception as e:
-        logger.error(f"❌ Error actualizando registros en BigQuery: {str(e)}")
+        logger.error(f"❌ Error en compilar_json: {e}", exc_info=True)
+        return make_response(f"Error interno: {e}", 500)
 
-# ==========================
-# Punto de Entrada para Cloud Run
-# ==========================
-
-def compilar_json(request):
-    try:
-        logger.info("Inicio de ejecución del Microservicio Compilar JSON...")
-
-        if not compilar_archivos_por_carpeta():
-            return ("Error durante la compilación de archivos.", 500)
-
-        logger.info("✅ Microservicio Compilar JSON completado exitosamente.")
-        return ("Microservicio Compilar JSON completado exitosamente.", 200)
-
-    except Exception as e:
-        logger.error(f"Error general en compilar_json: {str(e)}")
-        return (f"Error: {str(e)}", 500)
+# requirements.txt
+# google-cloud-storage
+# google-cloud-bigquery
+# pandas
