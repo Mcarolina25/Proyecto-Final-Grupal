@@ -1,0 +1,328 @@
+# ==========================
+# MÓDULO: Microservicio Fusion GDrive -> GCS
+# ==========================
+
+# Librerías necesarias
+from google.cloud import bigquery, storage
+import google.auth
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+import logging
+import io
+import os
+from datetime import datetime
+
+# ==========================
+# Configuración de Logging
+# ==========================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ==========================
+# Variables Globales de Configuración
+# ==========================
+PROJECT_ID = "acme-987654"
+DATASET_ID = "Registro_Archivos"
+TABLE_GDRIVE = "archivos_en_gdrive"
+TABLE_GCS = "archivos_en_gcs"
+TABLE_TRANSFERIDOS = "archivos_transferidos"
+BUCKET_NAME = "acme_storage"
+DESTINATION_FOLDER = "Google/Estados/California"
+FOLDER_ID = "111qqmbe37wCIFNKCAjmI7Jk6aZ-Q6QM7"
+
+# ==========================
+# Funciones de Inicialización de Clientes
+# ==========================
+
+def get_bigquery_client():
+    return bigquery.Client(project=PROJECT_ID)
+
+def get_storage_client():
+    return storage.Client(project=PROJECT_ID)
+
+def get_drive_service():
+    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/drive"])
+    return build("drive", "v3", credentials=credentials)
+
+# ==========================
+# Funciones Auxiliares
+# ==========================
+
+def crear_dataset_y_tablas():
+    try:
+        client = get_bigquery_client()
+
+        # Crear Dataset si no existe
+        dataset_ref = f"{PROJECT_ID}.{DATASET_ID}"
+        try:
+            client.get_dataset(dataset_ref)
+            logger.info(f"✅ Dataset '{DATASET_ID}' ya existe.")
+        except Exception:
+            dataset = bigquery.Dataset(dataset_ref)
+            dataset.location = "US"
+            client.create_dataset(dataset)
+            logger.info(f"📁 Dataset '{DATASET_ID}' creado exitosamente.")
+
+        # Crear Tabla archivos_en_gdrive
+        try:
+            client.get_table(f"{dataset_ref}.{TABLE_GDRIVE}")
+            logger.info(f"✅ Tabla '{TABLE_GDRIVE}' ya existe.")
+        except Exception:
+            schema = [
+                bigquery.SchemaField("gdrive_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("file_name", "STRING"),
+                bigquery.SchemaField("mime_type", "STRING"),
+                bigquery.SchemaField("created_time", "TIMESTAMP"),
+                bigquery.SchemaField("web_view_link", "STRING")
+            ]
+            table = bigquery.Table(f"{dataset_ref}.{TABLE_GDRIVE}", schema=schema)
+            client.create_table(table)
+            logger.info(f"📂 Tabla '{TABLE_GDRIVE}' creada exitosamente.")
+
+        # Crear Tabla archivos_en_gcs
+        try:
+            client.get_table(f"{dataset_ref}.{TABLE_GCS}")
+            logger.info(f"✅ Tabla '{TABLE_GCS}' ya existe.")
+        except Exception:
+            schema = [
+                bigquery.SchemaField("file_name", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("fecha_creacion", "TIMESTAMP"),
+                bigquery.SchemaField("size_bytes", "INTEGER"),
+                bigquery.SchemaField("mime_type", "STRING"),
+                bigquery.SchemaField("gcs_path", "STRING")
+            ]
+            table = bigquery.Table(f"{dataset_ref}.{TABLE_GCS}", schema=schema)
+            client.create_table(table)
+            logger.info(f"📂 Tabla '{TABLE_GCS}' creada exitosamente.")
+
+        # Crear Tabla archivos_transferidos
+        try:
+            client.get_table(f"{dataset_ref}.{TABLE_TRANSFERIDOS}")
+            logger.info(f"✅ Tabla '{TABLE_TRANSFERIDOS}' ya existe.")
+        except Exception:
+            schema = [
+                bigquery.SchemaField("file_name", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("gdrive_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("transfer_time", "TIMESTAMP"),
+                bigquery.SchemaField("gcs_path", "STRING")
+            ]
+            table = bigquery.Table(f"{dataset_ref}.{TABLE_TRANSFERIDOS}", schema=schema)
+            client.create_table(table)
+            logger.info(f"📂 Tabla '{TABLE_TRANSFERIDOS}' creada exitosamente.")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error creando dataset o tablas: {str(e)}")
+        return False
+
+# ==========================
+# Funciones Principales
+# ==========================
+
+def registrar_archivos_gdrive():
+    try:
+        drive_service = get_drive_service()
+        bigquery_client = get_bigquery_client()
+
+        archivos_a_insertar = []
+        page_token = None
+
+        while True:
+            response = drive_service.files().list(
+                q=f"'{FOLDER_ID}' in parents and trashed = false",
+                spaces='drive',
+                fields='nextPageToken, files(id, name, mimeType, createdTime, webViewLink)',
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+
+            for file in response.get('files', []):
+                gdrive_id = file['id']
+                file_name = file.get('name', '')
+                mime_type = file.get('mimeType', '')
+                created_time = file.get('createdTime', None)
+                web_view_link = file.get('webViewLink', '')
+
+                query = f"""
+                    SELECT COUNT(1) as cantidad
+                    FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GDRIVE}`
+                    WHERE gdrive_id = @gdrive_id
+                """
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[bigquery.ScalarQueryParameter("gdrive_id", "STRING", gdrive_id)]
+                )
+                results = list(bigquery_client.query(query, job_config=job_config).result())
+
+                if results[0].cantidad == 0:
+                    archivos_a_insertar.append({
+                        "gdrive_id": gdrive_id,
+                        "file_name": file_name,
+                        "mime_type": mime_type,
+                        "created_time": created_time,
+                        "web_view_link": web_view_link
+                    })
+
+            page_token = response.get('nextPageToken', None)
+            if not page_token:
+                break
+
+        if archivos_a_insertar:
+            table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GDRIVE}"
+            errores = bigquery_client.insert_rows_json(table_ref, archivos_a_insertar)
+            if errores:
+                logger.error(f"Errores insertando archivos de GDrive: {errores}")
+
+        logger.info(f"GDrive: Archivos registrados: {len(archivos_a_insertar)}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error registrando archivos de GDrive: {str(e)}")
+        return False
+
+def registrar_archivos_gcs():
+    try:
+        storage_client = get_storage_client()
+        bigquery_client = get_bigquery_client()
+
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blobs = list(bucket.list_blobs(prefix=DESTINATION_FOLDER))
+
+        archivos_a_insertar = []
+        for blob in blobs:
+            file_name = os.path.basename(blob.name)
+            if file_name == '':
+                continue
+
+            query = f"""
+                SELECT COUNT(1) as cantidad
+                FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS}`
+                WHERE file_name = @file_name
+            """
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[bigquery.ScalarQueryParameter("file_name", "STRING", file_name)]
+            )
+            results = list(bigquery_client.query(query, job_config=job_config).result())
+
+            if results[0].cantidad == 0:
+                archivos_a_insertar.append({
+                    "file_name": file_name,
+                    "fecha_creacion": blob.time_created.isoformat(),
+                    "size_bytes": blob.size,
+                    "mime_type": blob.content_type,
+                    "gcs_path": f"gs://{BUCKET_NAME}/{blob.name}"
+                })
+
+        if archivos_a_insertar:
+            table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS}"
+            errores = bigquery_client.insert_rows_json(table_ref, archivos_a_insertar)
+            if errores:
+                logger.error(f"Errores insertando archivos de GCS: {errores}")
+
+        logger.info(f"GCS: Archivos registrados: {len(archivos_a_insertar)}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error registrando archivos de GCS: {str(e)}")
+        return False
+
+def transferir_archivos_gdrive_a_gcs():
+    try:
+        bigquery_client = get_bigquery_client()
+        storage_client = get_storage_client()
+        drive_service = get_drive_service()
+
+        bucket = storage_client.bucket(BUCKET_NAME)
+
+        query_gdrive = f"SELECT gdrive_id, file_name FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GDRIVE}`"
+        archivos_drive = {row.gdrive_id: row.file_name for row in bigquery_client.query(query_gdrive)}
+
+        query_gcs = f"SELECT file_name FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_GCS}`"
+        archivos_gcs = {row.file_name for row in bigquery_client.query(query_gcs)}
+
+        archivos_a_transferir = [(gdrive_id, file_name) for gdrive_id, file_name in archivos_drive.items() if file_name not in archivos_gcs]
+
+        archivos_transferidos = []
+
+        for gdrive_id, file_name in archivos_a_transferir:
+            try:
+                request = drive_service.files().get_media(fileId=gdrive_id)
+                file_stream = io.BytesIO()
+                downloader = MediaIoBaseDownload(file_stream, request)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+
+                file_stream.seek(0)
+                blob = bucket.blob(f"{DESTINATION_FOLDER}/{file_name}")
+                blob.upload_from_file(file_stream)
+
+                archivos_transferidos.append({
+                    "file_name": file_name,
+                    "gdrive_id": gdrive_id,
+                    "transfer_time": datetime.utcnow().isoformat(),
+                    "gcs_path": f"gs://{BUCKET_NAME}/{DESTINATION_FOLDER}/{file_name}"
+                })
+                logger.info(f"✅ Transferido: {file_name}")
+
+            except Exception as ex:
+                logger.error(f"❌ Error transfiriendo {file_name}: {str(ex)}")
+
+        if archivos_transferidos:
+            table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_TRANSFERIDOS}"
+            errores = bigquery_client.insert_rows_json(table_ref, archivos_transferidos)
+            if errores:
+                logger.error(f"Errores insertando transferencias: {errores}")
+
+        logger.info(f"Transferencias registradas: {len(archivos_transferidos)}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error en transferencia de archivos: {str(e)}")
+        return False
+
+# ==========================
+# PUNTO DE ENTRADA del Microservicio Fusion
+# ==========================
+
+def carga_incremental(request):
+    try:
+        logger.info("Inicio de ejecución del Microservicio Fusion...")
+
+        # 🔥 PROCESO DE REVISAR Y/O CREAR EXISTENCIA DE DATASETS Y TABLAS DE REGISTRO EN BIGQUERY
+
+        if not crear_dataset_y_tablas():
+            return ("Error creando dataset o tablas", 500)
+
+        # 🔥 PROCESO DE REVISAR Y REGISTRAR EN TABLA LOS ARCHIVOS ENCONTRADOS EN GOOGLE DRIVE
+        if not registrar_archivos_gdrive():
+            return ("Error registrando archivos de GDrive", 500)
+
+        # 🔥 PROCESO DE REVISAR Y REGISTRAR EN TABLA LOS ARCHIVOS ENCONTRADOS EN GCS
+        if not registrar_archivos_gcs():
+            return ("Error registrando archivos de GCS", 500)
+
+        # 🔥 PROCESO DE TRANSFERIR ARCHIVOS DESDE GDRIVE A GCS
+        if not transferir_archivos_gdrive_a_gcs():
+            return ("Error en transferencia de archivos", 500)
+
+        # 🔥 PROCESO FINAL: actualizar nuevamente la tabla de GCS
+        if not registrar_archivos_gcs():
+            return ("Error actualizando archivos de GCS después de la transferencia", 500)
+
+        logger.info("✅ Proceso Fusion completado exitosamente.")
+        return ("Proceso Fusion completado exitosamente.", 200)
+
+    except Exception as e:
+        logger.error(f"Error general en carga_incremental: {str(e)}")
+        return (f"Error: {str(e)}", 500)
+
+# requirements.txt
+# google-cloud-storage
+# google-cloud-bigquery
+# google-api-python-client
+# google-auth
+# google-auth-httplib2
+# google-auth-oauthlib
+
+
