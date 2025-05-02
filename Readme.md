@@ -26,6 +26,13 @@ basado en una inversión de 500mil dólares, Rango Alto: $50,000 (depósito + pr
 
 ![alt text](Imagenes/ROI.jpg)
 
+![alt text](Imagenes/IngresosGastos.jpg)
+
+
+### Stack Tecnologico Automatización
+
+
+
 ### Stack Tecnologico Para la Base de datos
 
 Se utilizó la nube de google cloud, los componentes usados son:
