@@ -34,6 +34,62 @@ basado en una inversión de 500mil dólares, Rango Alto: $50,000 (depósito + pr
 
 Este microservicio se encarga de emular una proceso de carga incremental automatizado haciendo uso de Google Cloud Platform (GCP) y la Api de Google Drive con lo cual sincronizamos archivos desde una carpeta compartida en **Google Drive** hacia un bucket en **Google Cloud Storage (GCS)** (proceso para recrear la llegada periodica de archivos, a traves de una API externa, al DataLake del cliente emulado con **Cloud Storage**), registrando toda la trazabilidad en **BigQuery** y programando su ejecucion de forma periodica a través de **Cloud Scheduller**.
 
+## 🔎 Descripción
+
+1. **Recrea** el Data Lake del cliente en Cloud Storage.  
+2. **Emula** cargas incrementales desde Google Drive (API) hacia Cloud Storage.  
+3. **Orquesta** el flujo mediante eventos de Pub/Sub / Eventarc.  
+4. **Procesa** los datos en Cloud Run (microservicios).  
+5. **Ingesta** los datos resultantes en BigQuery.  
+
+---
+
+## 🏗️ Arquitectura General
+
+```text
+┌─────────────────────┐    ┌────────────────────┐    ┌────────────────────┐
+│  Cloud Scheduler    │ →  │  Cloud Run:        │ →  │  Cloud Storage:    │
+│  (carga incremental)│     │  carga-incremental │     │  Bucket “acme_storage” │
+└─────────────────────┘    └────────────────────┘    └────────────────────┘
+                                         │
+                                         │  evento `google.storage.object.v1.finalized`
+                                         ↓
+                              ┌───────────────────────────┐
+                              │   Eventarc → Pub/Sub      │
+                              └───────────────────────────┘
+                                         ↓
+                     ┌───────────────────────────────────┐
+                     │ Cloud Run: microservicio-compilar-json │
+                     └───────────────────────────────────┘
+                                         ↓
+                              ┌────────────────────┐
+                              │  Cloud Storage:    │
+                              │  carpeta “Compilados/” │
+                              └────────────────────┘
+                                         ↓  (otro trigger igual)
+                                         ↓
+                     ┌───────────────────────────────────┐
+                     │ Cloud Run: microservicio-compilar-sitios │
+                     └───────────────────────────────────┘
+                                         ↓
+                              ┌────────────────────┐
+                              │  Cloud Storage:    │
+                              │  carpeta “Compilados/Sitios/” │
+                              └────────────────────┘
+                                         ↓
+                              evento Pub/Sub & Eventarc
+                                         ↓
+        ┌────────────────────────────┐        ┌────────────────────────────┐
+        │ Cloud Run:                 │        │ Cloud Run:                 │
+        │ ingestion-compilados-a-bigquery │      │ ingestion-sitios-a-bigquery │
+        └────────────────────────────┘        └────────────────────────────┘
+                                         ↓
+                                  ┌────────────────┐
+                                  │ BigQuery:      │
+                                  │ Dataset `Raw_test` │
+                                  └────────────────┘
+
+
 ## 🚀 Funcionalidad
 
 1. **Validación y creación** de Datasets y Tablas:
