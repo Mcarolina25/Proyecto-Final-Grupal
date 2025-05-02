@@ -22,6 +22,8 @@
 
 ![alt text](Imagenes/image-31.png)
 
+basado en una inversión de 500mil dólares, Rango Alto: $50,000 (depósito + primer mes) + $100,000 (restauración) + $270,000 (cocina) + $20,000 (marketing) + $15,000 (licencias) + $50,000 (materia prima) = $505,000 USD
+
 ![alt text](Imagenes/ROI.jpg)
 
 ### Stack Tecnologico Para la Base de datos
