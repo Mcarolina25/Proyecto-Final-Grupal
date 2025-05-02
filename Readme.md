@@ -14,17 +14,15 @@
 
 ![alt text](Imagenes/image-27.png)
 
-![alt text](Imagenes/image-28.png)
+![alt text](Imagenes/competidores.jpg)
 
-![alt text](Imagenes/image-29.png)
+![alt text](Imagenes/CompetidoresDirectosCiudad.jpg)
 
 ![alt text](Imagenes/image-30.png)
 
 ![alt text](Imagenes/image-31.png)
 
-![alt text](Imagenes/image-32.png)
-
-![alt text](Imagenes/image-33.png)
+![alt text](Imagenes/ROI.jpg)
 
 ### Stack Tecnologico Para la Base de datos
 
@@ -81,6 +79,70 @@ RUN pip install bigframes
 RUN pip install scipy
 RUN pip install scikit-learn
 RUN pip install geopy
+
+# Modelo de Recomendación de Ubicación para Restaurante de Mariscos
+
+Este readme describe el modelo de recomendación desarrollado para identificar la mejor ubicación para una nueva sucursal de un restaurante de mariscos de nuestro cliente ACME en alguna de las ciudades objetivo de este proyecto. El modelo analiza la densidad de restaurantes en diferentes zonas y la presencia de competidores directos (otros restaurantes de mariscos) para sugerir áreas con alta actividad gastronómica general pero baja competencia en el nicho de mariscos o que la popularidad de esta competencia sea baja.
+
+## Objetivo
+
+El objetivo principal de este modelo es proporcionar una recomendación basada en datos sobre la ubicación más prometedora para una nueva sucursal, maximizando el potencial de éxito al ubicarse en una zona con demanda insatisfecha de restaurantes de mariscos. El resultado principal del modelo es una coordenada de latitud y longitud que representa el centro de la mejor zona identificada.
+
+## Metodología
+
+El modelo sigue los siguientes pasos principales:
+
+1.  **Análisis de Datos Inicial:** Se utilizan datos de Google Maps que contienen información sobre restaurantes, incluyendo su nombre, categoría, ubicación (latitud y longitud), calificaciones, número de reseñas y la ciudad a la que pertenecen.
+
+2.  **Identificación de Restaurantes y Competencia:**
+    * Se identifican todos los restaurantes dentro de la ciudad objetivo.
+    * Se identifican los restaurantes que son competidores directos, asumiendo que aquellos categorizados como "marisquerías" o similares (a través de la columna `is_seafood`) son la competencia principal.
+
+3.  **Agrupación Espacial (Clustering):**
+    * Se utiliza el algoritmo de clustering **DBSCAN (Density-Based Spatial Clustering of Applications with Noise)** para agrupar geográficamente los restaurantes. Esto permite identificar áreas con alta concentración de actividad gastronómica.
+
+4.  **Evaluación de la Competencia por Zona:**
+    * Para cada zona identificada (cluster de restaurantes), se cuenta el número de competidores directos (restaurantes de mariscos) presentes en esa área.
+
+5.  **Puntuación de las Zonas:**
+    * Se calcula una puntuación para cada zona basándose en varios factores, incluyendo:
+        * La cantidad total de restaurantes en la zona (indicador de actividad general).
+        * La calificación promedio de los restaurantes en la zona (indicador de calidad general).
+        * El número total de reseñas de los restaurantes en la zona (indicador de popularidad general).
+        * El número de competidores directos en la zona (indicador de saturación del mercado de mariscos).
+    * Las zonas con una alta densidad de restaurantes bien calificados y populares, pero con pocos competidores de mariscos, reciben una puntuación más alta.
+
+6.  **Identificación de la Mejor Zona y su Centroide:**
+    * La zona con la puntuación más alta se considera la recomendación principal para la nueva sucursal.
+    * El modelo retorna la **latitud y longitud del centroide** de esta mejor zona, representando la ubicación óptima identificada. Esta zona podrá ser visualizada en un mapa en una posterior aplicación web.
+
+## Selección del Modelo
+
+El algoritmo **DBSCAN (Density-Based Spatial Clustering of Applications with Noise)** fue seleccionado como el modelo de clustering espacial por las siguientes razones:
+
+* **No requiere especificar el número de clusters por adelantado:** A diferencia de algoritmos como K-Means, DBSCAN puede descubrir automáticamente la forma y el número de clusters basados en la densidad de los datos. Esto es útil ya que no tenemos un conocimiento previo del número óptimo de zonas de alta actividad gastronómica.
+* **Identifica clusters de formas arbitrarias:** Los restaurantes no necesariamente se agrupan en formas circulares. DBSCAN puede encontrar clusters de formas irregulares, lo que es más realista para la distribución de negocios en una ciudad.
+* **Maneja el ruido:** DBSCAN puede identificar puntos de datos que no pertenecen a ningún cluster (ruido), lo que en este contexto podrían ser restaurantes aislados que no forman parte de una zona de alta densidad.
+
+## Feature Engineering
+
+El proceso de "Feature Engineering" (creación y transformación de características) en este modelo incluye:
+
+* **Extracción de Coordenadas:** Se utilizaron directamente las columnas de 'latitude' y 'longitude' como las características principales para el clustering espacial. Estas son representaciones numéricas directas de la ubicación geográfica de cada restaurante.
+* **Identificación de Competencia (`is_seafood`):** Se creó una columna booleana (`is_seafood`) para identificar si un restaurante pertenece a la categoría de mariscos. Esta característica es crucial para determinar la competencia directa en cada zona. *Nota: En el código proporcionado, se asume que esta columna ya existe. Si no es así, sería necesario crearla a partir de la columna 'category' buscando palabras clave como "seafood", "mariscos", etc.*
+* **Creación de Clusters (`cluster_rest`):** El algoritmo DBSCAN genera una nueva característica: el 'cluster_rest' ID para cada restaurante, indicando a qué grupo geográfico pertenece.
+* **Métricas Agregadas por Cluster:** Para evaluar cada zona, se crearon nuevas características agregadas a nivel de cluster, como:
+    * `num_restaurantes`: Conteo de restaurantes por cluster.
+    * `avg_rating_mean_general`: Promedio de la calificación por cluster.
+    * `sum_reviews_general`: Suma de las reseñas por cluster.
+    * `num_competidores_en_cluster`: Número de competidores por cluster.
+    * `lat_centroide`, `lon_centroide`: Coordenadas del centroide de cada cluster.
+* **Puntuación (`puntuacion`):** Se creó una nueva característica que combina varias de las anteriores para evaluar el atractivo de cada zona, favoreciendo áreas con alta actividad y baja competencia.
+
+## Interpretación de los Resultados
+
+El modelo identifica la mejor zona para la nueva sucursal y retorna la latitud y longitud del centroide de esa zona. Esta ubicación representa el punto central del área que presenta la combinación más favorable de alta actividad gastronómica general y baja competencia directa de restaurantes de mariscos. Esta ubicación podrá ser utilizada como punto de referencia para explorar posibles locales en la zona recomendada.
+
 
 #### Página Web
 Flask tiene toda la interacción web y llama al servicio del recomendador a su ves muestra las ubicaciones de los lugares recomendados en un mapa
@@ -173,5 +235,8 @@ Los pasos siguientes serán sobre google Cloud, por lo cual como pre-requerimien
     
 6.- Valide en el cloud
 
+#### Power BI
+Dashboard para el cliente donde va a poder recorrer sus datos de forma facil e interactiva, siempre que necesite.
 
+![alt text](<imagenes/powerBi.jpg>)
 
