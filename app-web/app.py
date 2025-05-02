@@ -5,35 +5,44 @@ import folium
 from funciones_flask import get_polygon
 
 import webbrowser
-
+import json
 app = Flask(__name__)
 
 
 
 @app.route('/cities')
 def home():
-    options = ['charleston', 'tampa', 'boston','galveston','seattle','san diego','new orleans']
+    options = ['charleston', 'tampa', 'boston', 'galveston', 'seattle', 'san diego', 'new orleans', 'miami']
     return render_template('index.html', options=options)
 
 
 @app.route('/submit', methods=['POST'])
 def submit():
     selected_option = request.form.get('selected_option')
+    print("The option is: ",selected_option)
     # The REST API endpoint
     url = f"https://api1-113694561673.southamerica-east1.run.app/API/{selected_option}"
+           
+
+    #url = f"http://localhost:8000/API/{selected_option}"
+  
     print(url)
 
     # Make a GET request
+    
     response = requests.get(url)
-
+    print("Response:", response)
     print("Response Status Code:", response.status_code)
+    
     # Check the response status code
     if response.status_code == 200:
         
         file_path = 'map.html'
         
         radio_metros = 1000  # Radio del círculo en metros
-        data = response.json()
+        data = json.loads(response.json())
+        print(data)
+
         
         dynamic_map = folium.Map(location=data, zoom_start=12)
         
@@ -43,16 +52,6 @@ def submit():
             popup="ACME Marker",
             icon=folium.Icon(color="blue")
         ).add_to(dynamic_map)
-
-        # Add a circle marker
-        #folium.CircleMarker(
-        #    location=data,
-        #    radius=50,
-        #    popup="Dynamic Circle",
-        #    color="red",
-        #    fill=True,
-        #    fill_color="red"
-        #).add_to(dynamic_map)
 
         # Agregar el círculo al mapa
         folium.Circle(

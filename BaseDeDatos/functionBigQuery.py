@@ -596,6 +596,8 @@ def identify_city(address):
         return "san diego"
     elif 'new orleans' in address.lower() and ('la' in address.lower() or 'luisiana' in address.lower()):
         return "new orleans"
+    elif 'miami' in address.lower() and ('fl' in address.lower() or 'florida' in address.lower()):
+        return "miami"
     else:
         return ""
    
