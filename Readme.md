@@ -30,14 +30,12 @@ basado en una inversión de 500mil dólares, Rango Alto: $50,000 (depósito + pr
 
 
 ### Stack Tecnologico Automatización
-
+[Sergio agregar aqui la información]
 
 
 ### Stack Tecnologico Para la Base de datos
 
 Se utilizó la nube de google cloud, los componentes usados son:
-
-[Sergio agregar aqui la información]
 
 
 Cloud Storage: Aqui se almacenan los archivos y  hace la función del data lake
