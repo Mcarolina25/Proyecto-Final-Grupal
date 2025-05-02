@@ -240,5 +240,5 @@ Los pasos siguientes serán sobre google Cloud, por lo cual como pre-requerimien
 #### Power BI
 Dashboard para el cliente donde va a poder recorrer sus datos de forma facil e interactiva, siempre que necesite.
 
-![alt text](<imagenes/powerBi.jpg>)
+![alt text](Imagenes/powerBi.jpg)
 
