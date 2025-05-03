@@ -1,0 +1,280 @@
+main.py
+
+# ==========================
+# Microservicio Ingestión Compilados Sitios a BigQuery
+# ==========================
+
+import logging
+import json
+import os
+import time # Importar time para el job_id_prefix
+from flask import Request, make_response, Flask, Response # Flask solo para Request/Response
+from google.cloud import bigquery
+from google.api_core.exceptions import NotFound as BQNotFound, Conflict as BQConflict
+
+# --- Configuración ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(name)s:%(lineno)d: %(message)s')
+logger = logging.getLogger(__name__)
+
+# Parámetros de filtrado (Constantes)
+ROOT_FOLDER  = "Google/Sitios"
+COMPI_PREFIX = "compilado_sitios_"
+COMPI_EXT    = ".json"
+
+# Destino en BigQuery (Constantes)
+BQ_PROJECT_ID = os.environ.get("BQ_PROJECT_ID", None) # Opcional, cliente lo infiere usualmente
+BQ_DATASET = os.environ.get("BQ_DATASET", "Raw_test")
+BQ_TABLE   = os.environ.get("BQ_TABLE", "Sitios")
+
+# Esquema fijo para BigQuery (Constante - ACTUALIZADO PARA SITIOS)
+BQ_SCHEMA = [
+    bigquery.SchemaField("name",    "STRING"),
+    bigquery.SchemaField("address", "STRING"),
+    bigquery.SchemaField("gmap_id", "STRING"),
+    bigquery.SchemaField("description", "STRING"),
+    bigquery.SchemaField("latitude",  "FLOAT"),
+    bigquery.SchemaField("longitude",  "FLOAT"),
+    bigquery.SchemaField("category",    "STRING"),
+    bigquery.SchemaField("avg_rating",    "FLOAT"),
+    bigquery.SchemaField("num_of_reviews",    "INTEGER"),
+    bigquery.SchemaField("hours",    "STRING"),
+    bigquery.SchemaField("MISC",    "STRING"),
+    bigquery.SchemaField("state",    "STRING"),
+    bigquery.SchemaField("is_seafood",    "INTEGER"),
+    bigquery.SchemaField("city",    "STRING"),
+]
+
+# --- Clientes Globales ---
+# Inicializar una vez por instancia para eficiencia
+# Si BQ_PROJECT_ID no se define, el cliente intenta inferirlo del entorno
+bq_client = None
+try:
+    bq_client = bigquery.Client(project=BQ_PROJECT_ID)
+    logger.info(f"Cliente BigQuery (Sitios) inicializado para proyecto: {bq_client.project}")
+except Exception as e:
+    logger.critical(f"❌ Fallo al inicializar cliente BigQuery (Sitios): {e}", exc_info=True)
+    # Dejar bq_client como None, se verificará en cada request
+
+# --- NO SE NECESITA INSTANCIA Flask app = Flask(__name__) ---
+# Ya que Cloud Run llama directamente a la función 'ingest' si está configurado así
+
+def _ensure_bq_table_exists(client: bigquery.Client) -> bigquery.table.TableReference:
+    """Asegura que el dataset y la tabla Sitios existan."""
+    if not client:
+        raise RuntimeError("Cliente BigQuery no inicializado.")
+
+    dataset_ref = client.dataset(BQ_DATASET)
+    table_ref = dataset_ref.table(BQ_TABLE) # <-- Usa BQ_TABLE (Sitios)
+
+    try:
+        client.get_dataset(dataset_ref)
+        # logger.info(f"Dataset '{BQ_DATASET}' ya existe.") # Log menos verboso
+    except BQNotFound:
+        logger.info(f"Dataset '{BQ_DATASET}' no encontrado, creando...")
+        try:
+            client.create_dataset(bigquery.Dataset(dataset_ref), exists_ok=True, timeout=30) # exists_ok=True es seguro
+            logger.info(f"Dataset '{BQ_DATASET}' creado o ya existía.")
+        except BQConflict:
+             logger.info(f"Dataset '{BQ_DATASET}' creado por otra instancia concurrente.")
+        except Exception as e:
+            logger.error(f"❌ Fallo al crear dataset '{BQ_DATASET}': {e}", exc_info=True)
+            raise # Re-lanzar excepción, no podemos continuar sin dataset
+
+    try:
+        client.get_table(table_ref)
+        # logger.info(f"Tabla '{BQ_TABLE}' ya existe en dataset '{BQ_DATASET}'.") # Log menos verboso
+    except BQNotFound:
+        logger.info(f"Tabla '{BQ_TABLE}' no encontrada en '{BQ_DATASET}', creando...")
+        try:
+            table = bigquery.Table(table_ref, schema=BQ_SCHEMA) # <-- Usa BQ_SCHEMA actualizado
+            client.create_table(table, timeout=30)
+            logger.info(f"Tabla '{BQ_TABLE}' creada.")
+        except BQConflict:
+             logger.info(f"Tabla '{BQ_TABLE}' creada por otra instancia concurrente.")
+        except Exception as e:
+            logger.error(f"❌ Fallo al crear tabla '{BQ_TABLE}': {e}", exc_info=True)
+            raise # Re-lanzar excepción, no podemos continuar sin tabla
+
+    return table_ref
+
+
+# --- Función Principal de Ingestión (Punto de Entrada Cloud Run) ---
+def ingest(request: Request) -> Response:
+    """
+    Punto de entrada llamado por Cloud Run/Functions Framework para SITIOS.
+    Procesa la solicitud POST, filtra el evento y lanza LoadJob a BQ Sitios.
+    """
+    global bq_client # Indicar que usamos y podríamos reintentar inicializar el cliente global
+
+    # Verificar cliente BQ al inicio de cada request
+    # Intentar inicializar si falló al inicio del módulo
+    if not bq_client:
+        logger.warning("Cliente BigQuery (Sitios) no estaba inicializado, reintentando...")
+        try:
+            bq_client = bigquery.Client(project=BQ_PROJECT_ID)
+            logger.info(f"Cliente BigQuery (Sitios) reinicializado: {bq_client.project}")
+        except Exception as e:
+            logger.error(f"❌ Fallo al reinicializar cliente BigQuery (Sitios): {e}", exc_info=True)
+            return make_response("Server Configuration Error: BigQuery client failed to initialize.", 503)
+
+    # Ahora usamos la variable global directamente
+    client = bq_client
+
+    # --- Resto de la lógica de ingestión ---
+    try:
+        # 0) Parsear evento JSON desde el cuerpo POST
+        try:
+            # No usar force=True, esperar Content-Type application/json
+            # Usar silent=True para manejar errores de parseo manualmente
+            evt = request.get_json(silent=True)
+            if evt is None:
+                 # Intentar parsear manualmente si get_json falla pero hay datos (por si acaso)
+                 if request.data:
+                      try:
+                           evt = json.loads(request.data.decode('utf-8'))
+                      except (json.JSONDecodeError, UnicodeDecodeError):
+                           logger.warning(f"⚠️ Cuerpo de solicitud POST (Sitios) no es JSON válido. Data: {request.data[:200]}...")
+                           # Asegurarse de que sea método POST antes de devolver 400
+                           if request.method != 'POST':
+                                return make_response("Method Not Allowed", 405)
+                           return make_response("Bad Request: Invalid JSON payload", 400)
+                 else:
+                      logger.warning("⚠️ Solicitud POST (Sitios) recibida sin cuerpo JSON.")
+                      if request.method != 'POST':
+                           return make_response("Method Not Allowed", 405)
+                      return make_response("Bad Request: Missing JSON payload", 400)
+
+        except Exception as e: # Captura genérica por si get_json lanza algo inesperado
+            logger.error(f"❌ Error inesperado parseando JSON (Sitios): {e}", exc_info=True)
+            return make_response("Internal Server Error during JSON parsing", 500)
+
+        # Verificar si es POST después de intentar parsear (para manejar GETs vacíos)
+        if request.method != 'POST':
+             logger.warning(f"⚠️ Solicitud {request.method} (Sitios) recibida, se esperaba POST.")
+             # Devolver 405 Method Not Allowed para métodos incorrectos
+             return make_response("Method Not Allowed", 405)
+
+
+        bucket_name = evt.get("bucket")
+        blob_name   = evt.get("name")
+
+        # Validar que bucket y name están presentes en el JSON
+        if not bucket_name or not blob_name:
+            logger.warning(f"⚠️ Payload JSON inválido (Sitios): faltan 'bucket' o 'name'. Payload: {evt}")
+            return make_response("Bad Request: Missing 'bucket' or 'name' in JSON payload", 400)
+
+        logger.info(f"▶️ Evento de ingestión (Sitios) recibido para: gs://{bucket_name}/{blob_name}")
+
+        # 1) Filtrar sólo los compilados en Google/Sitios/<estado_sitio>/compilado_sitios_<estado_sitio>.json
+        if not blob_name.startswith(f"{ROOT_FOLDER}/"):
+            logger.info(f"ℹ️ Ignorando blob fuera de ROOT_FOLDER (Sitios): {blob_name}")
+            return make_response("Ignored: Outside root folder", 200)
+
+        # Usar os.path.normpath para manejo seguro de rutas y evitar "//"
+        # Quitar ROOT_FOLDER y la barra inicial
+        try:
+             # Extraer nombre de archivo para validación
+             filename = os.path.basename(blob_name)
+             if not filename.startswith(COMPI_PREFIX) or not filename.endswith(COMPI_EXT):
+                  logger.info(f"ℹ️ Ignorando archivo no compilado (Sitios) por nombre: {filename}")
+                  return make_response("Ignored: Not a compiled sites file by name", 200)
+
+             # Validar estructura general (al menos ROOT_FOLDER/subdir/archivo.json)
+             relative_path = os.path.normpath(blob_name[len(ROOT_FOLDER):].lstrip('/'))
+             parts = relative_path.split(os.sep)
+             if len(parts) < 2: # Necesita al menos <subdir>/<archivo>
+                 logger.info(f"ℹ️ Ignorando blob (Sitios) con estructura de ruta inesperada: {blob_name} (Partes: {parts})")
+                 return make_response("Ignored: Unexpected path structure", 200)
+
+        except Exception as e:
+             logger.warning(f"⚠️ Error procesando ruta del blob (Sitios): {blob_name}. Error: {e}")
+             return make_response("Bad Request: Invalid blob path format", 400)
+
+        # 2) Asegurar que la tabla y dataset existen
+        try:
+            table_ref = _ensure_bq_table_exists(client)
+        except Exception as e:
+             # Error ya logueado dentro de la función auxiliar
+             return make_response(f"Error ensuring BigQuery table 'Sitios' exists: {e}", 500)
+
+
+        # 3) Configurar y ejecutar el LoadJob en modo APPEND
+        uri = f"gs://{bucket_name}/{blob_name}"
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+            schema=BQ_SCHEMA, # <-- Usa el esquema correcto para Sitios
+            write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+            ignore_unknown_values=True, # Ignora campos extras en el JSON
+            # max_bad_records=10, # Opcional: permite algunos errores antes de fallar el job
+        )
+        # Crear un job_id más descriptivo y único
+        timestamp_ms = int(time.time() * 1000)
+        # Extraer identificador del path para el job_id si es útil (penúltima parte)
+        path_parts = blob_name.split('/')
+        identifier = path_parts[-2] if len(path_parts) > 1 else "unknown"
+        job_id = f"ingest_sitios_{identifier}_{timestamp_ms}" # Usar job_id completo
+
+        logger.info(f"🚀 Iniciando LoadJob Sitios ({job_id}): {uri} → {table_ref.project}.{table_ref.dataset_id}.{table_ref.table_id}")
+
+        load_job = client.load_table_from_uri(
+            uri, # Pasar URI directamente, no necesita lista si es uno solo
+            table_ref,
+            job_config=job_config,
+            job_id=job_id # Usar job_id completo
+        )
+        logger.info(f"Job Sitios {load_job.job_id} iniciado (Estado: {load_job.state}). Esperando resultado...")
+
+        # Esperar a que el job termine (bloqueante)
+        # Añadir timeout para evitar que la función Cloud Run exceda su límite
+        try:
+             # Aumentar timeout si los archivos son muy grandes
+             load_job.result(timeout=540) # Timeout de 9 minutos (Cloud Run max es 10 min por defecto)
+        except TimeoutError:
+             logger.error(f"❌ Timeout esperando resultado del LoadJob Sitios {load_job.job_id}.")
+             # El job puede seguir corriendo en BQ, pero la función Cloud Run debe responder.
+             # Devolver 504 Gateway Timeout es apropiado aquí.
+             return make_response(f"Load job {load_job.job_id} (Sitios) started but timed out waiting for result.", 504)
+        except Exception as e:
+             logger.error(f"❌ Error durante la ejecución del LoadJob Sitios {load_job.job_id}: {e}", exc_info=True)
+             # Intentar obtener errores del job si es posible
+             try:
+                 # Recargar el estado del job para obtener los errores más recientes
+                 load_job.reload()
+                 if load_job.errors:
+                      logger.error(f"   Errores detallados (Sitios) ({load_job.job_id}): {load_job.errors}")
+             except Exception as inner_e:
+                  logger.error(f"   Error adicional al intentar obtener detalles del job (Sitios) {load_job.job_id}: {inner_e}")
+             return make_response(f"Error during BigQuery Load Job {load_job.job_id} (Sitios): {e}", 500)
+
+
+        # Verificar si hubo errores en el job completado
+        # Recargar estado por si acaso
+        load_job.reload()
+        if load_job.errors:
+            logger.error(f"❌ LoadJob Sitios {load_job.job_id} completado con errores: {load_job.errors}")
+            # Devolver 500 ya que la carga falló parcialmente o totalmente
+            return make_response(f"Load job {load_job.job_id} (Sitios) completed with errors.", 500)
+        else:
+            # Obtener la tabla de destino para loguear el número de filas
+            try:
+                destination_table = client.get_table(table_ref)
+                num_rows = destination_table.num_rows
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo obtener el número de filas de la tabla destino (Sitios) '{table_ref.table_id}': {e}")
+                num_rows = "desconocido"
+
+            logger.info(f"✅ LoadJob Sitios {load_job.job_id} completado. "
+                        f"Se procesaron {load_job.input_files} archivos de entrada. "
+                        f"Se cargaron {load_job.output_rows} filas. "
+                        f"Total filas en tabla '{table_ref.table_id}': {num_rows}")
+            return make_response("OK", 200)
+
+    except Exception as e:
+        # Captura genérica para errores inesperados fuera del flujo del job
+        logger.error(f"❌ Error fatal en ingest (Sitios): {e}", exc_info=True)
+        return make_response(f"Internal Server Error: {e}", 500)
+
+# Requirements.txt
+# lask>=2.0.0
+# google-cloud-storage>=2.0.0
+# google-cloud-bigquery>=3.0.0
