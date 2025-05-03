@@ -1,0 +1,387 @@
+main.py
+
+# ==========================
+# Microservicio Compilar JSON Dinámico para SITIOS
+# ==========================
+
+import logging
+import json
+import os
+import time
+import base64
+from typing import Optional, Tuple, Set, Any, Dict
+
+import requests
+from flask import Request, make_response, Response, Flask
+from google.cloud import storage
+from google.api_core.exceptions import NotFound, PreconditionFailed
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2 import id_token
+
+# --- Configuración ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(name)s:%(lineno)d: %(message)s')
+logger = logging.getLogger(__name__)
+
+# --- Constantes de Configuración (Valores Fijos para SITIOS) ---
+ROOT_FOLDER = "Google/Sitios"  # Carpeta raíz de sitios
+# El nombre del archivo compilado es fijo y único para todos los sitios
+COMPILED_FILENAME = "compilado_sitios.json"
+# URL del servicio de ingestión para SITIOS (Corregido typo hhttps://)
+INGESTION_URL = "https://microservicio-ingestion-sitios-a-bigquery-113694561673.southamerica-east1.run.app"
+MAX_CONCURRENCY_RETRIES = 3 # Número máximo de reintentos por concurrencia
+RETRY_DELAY_SECONDS = 0.5 # Retardo inicial antes del primer reintento (en segundos)
+
+# Validar que INGESTION_URL esté definida
+if not INGESTION_URL:
+    logger.critical("❌ La constante INGESTION_URL no está definida en el código. El servicio no podrá notificar la ingestión.")
+    # Considera lanzar una excepción para detener el inicio si es crítico
+    # raise ValueError("INGESTION_URL must be set in the code")
+
+
+# --- Clientes y Sesiones (Inicialización Global) ---
+storage_client = storage.Client()
+http_session = requests.Session()
+google_auth_request = GoogleAuthRequest()
+
+# --- Funciones Auxiliares ---
+
+def _get_authenticated_session(audience: str) -> requests.Session:
+    """Obtiene un token OIDC para la audiencia y lo añade a una NUEVA sesión."""
+    session = requests.Session()
+    try:
+        auth_token = id_token.fetch_id_token(google_auth_request, audience)
+        session.headers.update({"Authorization": f"Bearer {auth_token}"})
+        logger.info(f"Token OIDC obtenido para la audiencia: {audience}")
+        return session
+    except Exception as e:
+        logger.error(f"❌ Fallo al obtener token OIDC para {audience}: {e}", exc_info=True)
+        logger.warning(f"⚠️ Devolviendo sesión SIN autenticar para {audience} debido a error en token.")
+        return session
+
+def _notify_ingestion_service(bucket_name: str, compiled_blob_name: str) -> bool:
+    """Notifica al microservicio de ingestión mediante POST HTTP autenticado."""
+    if not INGESTION_URL:
+        logger.warning("⚠️ INGESTION_URL no configurada. Omitiendo notificación.")
+        return False
+    try:
+        payload = {"bucket": bucket_name, "name": compiled_blob_name}
+        authed_session = _get_authenticated_session(INGESTION_URL)
+        response = authed_session.post(INGESTION_URL, json=payload, timeout=60)
+        response.raise_for_status()
+        logger.info(f"📤 Notificación de ingestión (Sitios) enviada correctamente a {INGESTION_URL} para {compiled_blob_name}.")
+        return True
+    except requests.exceptions.Timeout as e:
+        logger.error(f"❌ Timeout al notificar ingestión (Sitios) para {compiled_blob_name}. Tiempo: {e.request.elapsed.total_seconds() if hasattr(e.request, 'elapsed') else 'N/A'}s")
+        return False
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Error HTTP notificando ingestión (Sitios) para {compiled_blob_name}: {e}")
+        if e.response is not None:
+            logger.error(f"   Respuesta: Status={e.response.status_code}, Body={e.response.text[:500]}...")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Error inesperado notificando ingestión (Sitios) para {compiled_blob_name}: {e}", exc_info=True)
+        return False
+
+def _load_compiled_data(comp_blob: storage.Blob) -> Tuple[list[str], Set[Any], Optional[int]]:
+    """
+    Carga líneas JSON válidas del compilado existente.
+    Usa solo gmap_id para la clave de unicidad.
+    Retorna None, None, None en caso de error irrecuperable.
+    """
+    seen_keys = set() # Ahora solo contendrá gmap_ids
+    valid_existing_lines = []
+    generation = None
+    malformed_lines_count = 0
+    try:
+        prev_text = comp_blob.download_as_text(encoding='utf-8')
+        comp_blob.reload()
+        generation = comp_blob.generation
+        lines = prev_text.splitlines()
+        total_lines = len(lines)
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line: continue
+            try:
+                obj_prev = json.loads(line)
+                valid_existing_lines.append(line)
+                # --- CAMBIO AQUÍ: Clave de unicidad solo gmap_id ---
+                key = obj_prev.get("gmap_id")
+                if key is not None: # Añadir solo si gmap_id existe
+                     seen_keys.add(key)
+                # --- FIN DEL CAMBIO ---
+            except json.JSONDecodeError:
+                malformed_lines_count += 1
+                if malformed_lines_count == 1: logger.warning(f"⚠️ Línea {i+1}/{total_lines} inválida (JSONDecodeError) en compilado {comp_blob.name}. Línea: {line[:100]}...")
+            except Exception as e:
+                 malformed_lines_count += 1
+                 if malformed_lines_count == 1: logger.warning(f"⚠️ Error procesando línea {i+1}/{total_lines} en compilado {comp_blob.name}: {e} - Línea: {line[:100]}...")
+        if malformed_lines_count > 1: logger.warning(f"⚠️ Se encontraron {malformed_lines_count} líneas malformadas en total en '{comp_blob.name}'.")
+        logger.info(f"ℹ️ '{comp_blob.name}' existente cargado. {len(valid_existing_lines)} registros válidos. {len(seen_keys)} gmap_ids únicos vistos. Generación: {generation}.")
+    except NotFound:
+        logger.info(f"ℹ️ No existe '{comp_blob.name}'; iniciando nuevo archivo.")
+    except Exception as e:
+        logger.error(f"❌ Error cargando datos compilados de '{comp_blob.name}': {e}", exc_info=True)
+        return None, None, None
+    return valid_existing_lines, seen_keys, generation
+
+def _process_raw_file(blob: storage.Blob, seen_keys: Set[Any]) -> Tuple[list[Dict[str, Any]], int]:
+    """
+    Descarga, parsea el archivo crudo y filtra duplicados usando solo gmap_id.
+    """
+    nuevos_obj = []
+    malformed_raw_lines = 0
+    try:
+        raw_text = blob.download_as_text(encoding='utf-8')
+    except Exception as e:
+        logger.error(f"❌ Error descargando archivo crudo {blob.name}: {e}", exc_info=True)
+        return [], 0
+    lines = raw_text.splitlines()
+    total_lines = len(lines)
+    for i, line in enumerate(lines, start=1):
+        text = line.strip()
+        if not text: continue
+        try:
+            obj = json.loads(text)
+            nuevos_obj.append(obj)
+        except json.JSONDecodeError as e:
+            malformed_raw_lines += 1
+            if malformed_raw_lines <= 5: logger.warning(f"⚠️ Línea {i}/{total_lines} malformada en crudo {blob.name}: {e}. Línea: {text[:100]}...")
+        except Exception as e:
+            malformed_raw_lines += 1
+            if malformed_raw_lines <= 5: logger.warning(f"⚠️ Error inesperado procesando línea {i}/{total_lines} en crudo {blob.name}: {e}. Línea: {text[:100]}...")
+    if malformed_raw_lines > 5: logger.warning(f"⚠️ Se encontraron {malformed_raw_lines} líneas malformadas en total en el archivo crudo {blob.name}.")
+    total_raw_parsed = len(nuevos_obj)
+    logger.info(f"ℹ️ '{blob.name}' tenía {total_lines} líneas, {total_raw_parsed} registros JSON parseados.")
+
+    appended_objs = []
+    duplicates = 0
+    # Usar una copia del set para no modificar el original directamente
+    current_seen_keys = set(seen_keys)
+
+    for obj in nuevos_obj:
+        # --- CAMBIO AQUÍ: Clave de unicidad solo gmap_id ---
+        key = obj.get("gmap_id")
+        # Considerar duplicado si gmap_id existe y ya se ha visto
+        if key is not None and key in current_seen_keys:
+            duplicates += 1
+        else:
+            appended_objs.append(obj)
+            # Añadir la nueva clave (si existe) al set local para deduplicación intra-archivo
+            if key is not None:
+                current_seen_keys.add(key)
+        # --- FIN DEL CAMBIO ---
+
+    logger.info(f"ℹ️ Duplicados omitidos (por gmap_id) desde '{blob.name}': {duplicates}")
+    logger.info(f"ℹ️ Nuevos únicos a añadir desde '{blob.name}': {len(appended_objs)}")
+    return appended_objs, duplicates
+
+def _update_compiled_file(comp_blob: storage.Blob,
+                         valid_existing_lines: list[str],
+                         appended_objs: list[Dict[str, Any]],
+                         initial_generation: Optional[int]) -> bool:
+    """Actualiza el archivo compilado en GCS con control de concurrencia."""
+    if not appended_objs:
+        logger.info(f"ℹ️ Sin nuevos registros para añadir; compilado '{comp_blob.name}' sin cambios necesarios.")
+        return True
+    new_lines = [json.dumps(o, ensure_ascii=False) for o in appended_objs]
+    all_lines = valid_existing_lines + new_lines
+    final_content = "\n".join(all_lines) + "\n" if all_lines else ""
+    initial_valid_count = len(valid_existing_lines)
+    new_count = len(new_lines)
+    for attempt in range(MAX_CONCURRENCY_RETRIES):
+        try:
+            generation_match = initial_generation if initial_generation is not None else 0
+            comp_blob.upload_from_string(
+                final_content.encode('utf-8'),
+                content_type="application/json; charset=utf-8",
+                if_generation_match=generation_match,
+                timeout=120
+            )
+            logger.info(f"✅ '{comp_blob.name}' actualizado. {initial_valid_count} válidas previas + {new_count} nuevas = {initial_valid_count + new_count} registros. (Intento {attempt + 1})")
+            return True
+        except PreconditionFailed:
+            logger.info(f"ℹ️ Concurrencia detectada al actualizar '{comp_blob.name}'. Reintentando... (Intento {attempt + 1}/{MAX_CONCURRENCY_RETRIES})")
+            if attempt < MAX_CONCURRENCY_RETRIES - 1:
+                time.sleep(RETRY_DELAY_SECONDS * (2 ** attempt))
+                logger.info(f"   Recargando estado de '{comp_blob.name}' antes de reintentar.")
+                reloaded_data = _load_compiled_data(comp_blob)
+                if reloaded_data[0] is None:
+                     logger.warning(f"⚠️ Fallo al recargar '{comp_blob.name}' durante el reintento. Continuando...")
+                     continue
+                valid_existing_lines, seen_keys, initial_generation = reloaded_data
+                current_appended = []
+                original_appended_objs = list(appended_objs)
+                temp_seen_keys = set(seen_keys)
+                for obj in original_appended_objs:
+                     # --- CAMBIO AQUÍ: Clave de unicidad solo gmap_id ---
+                     key = obj.get("gmap_id")
+                     if key is not None and key in temp_seen_keys: continue
+                     # --- FIN DEL CAMBIO ---
+                     else:
+                         current_appended.append(obj)
+                         if key is not None: temp_seen_keys.add(key)
+                appended_objs = current_appended
+                if not appended_objs:
+                     logger.info(f"   No quedan objetos nuevos para añadir tras recarga. Éxito.")
+                     return True
+                new_lines = [json.dumps(o, ensure_ascii=False) for o in appended_objs]
+                all_lines = valid_existing_lines + new_lines
+                final_content = "\n".join(all_lines) + "\n" if all_lines else ""
+                initial_valid_count = len(valid_existing_lines)
+                new_count = len(new_lines)
+                logger.info(f"   Re-filtrados {new_count} objetos para añadir tras recarga.")
+            else:
+                logger.error(f"❌ Fallo al actualizar '{comp_blob.name}' después de {MAX_CONCURRENCY_RETRIES} intentos (concurrencia).")
+                return False
+        except Exception as e:
+            logger.error(f"❌ Error inesperado subiendo compilado '{comp_blob.name}': {e}", exc_info=True)
+            return False
+    logger.error(f"❌ Fallo al actualizar '{comp_blob.name}' después de {MAX_CONCURRENCY_RETRIES} intentos.")
+    return False
+
+# --- Función Principal (Handler de Cloud Run) ---
+app = Flask(__name__)
+
+@app.route('/', methods=['POST'])
+def main_handler():
+     """Función wrapper que llama a compilar_sitios_json pasando el request."""
+     return compilar_sitios_json(request)
+
+def compilar_sitios_json(request: Request) -> Response:
+    """
+    Handler HTTP para compilar archivos JSON de SITIOS en un único compilado.
+    """
+    if not INGESTION_URL:
+        logger.error("INGESTION_URL (Sitios) no está configurada. Terminando ejecución.")
+        return make_response("Server Configuration Error: INGESTION_URL not set.", 500)
+
+    gcs_event_payload = None
+    raw_request_data_snippet = request.data[:200]
+
+    try:
+        # 1) Leer y parsear el evento GCS
+        if request.is_json:
+            direct_payload = request.get_json(silent=True)
+            if isinstance(direct_payload, dict):
+                if 'data' in direct_payload and isinstance(direct_payload['data'], dict):
+                     gcs_event_payload = direct_payload['data']
+                     logger.info("ℹ️ Evento GCS (Sitios) extraído de CloudEvents.")
+                else:
+                     gcs_event_payload = direct_payload
+                     logger.info("ℹ️ Evento GCS (Sitios) asumido JSON directo.")
+            else: logger.warning(f"⚠️ Payload JSON (Sitios) no era diccionario: {direct_payload}")
+        elif request.data:
+            try:
+                decoded_data = request.data.decode('utf-8')
+                parsed_data = json.loads(decoded_data)
+                if isinstance(parsed_data, dict) and 'message' in parsed_data:
+                    if isinstance(parsed_data['message'], dict) and 'data' in parsed_data['message']:
+                        gcs_event_str = base64.b64decode(parsed_data['message']['data']).decode('utf-8')
+                        gcs_event_payload = json.loads(gcs_event_str)
+                        logger.info("ℹ️ Evento GCS (Sitios) extraído de Pub/Sub.")
+                    else: logger.warning("⚠️ Mensaje Pub/Sub (Sitios) sin 'message.data'.")
+                else:
+                    gcs_event_payload = parsed_data
+                    logger.info("ℹ️ Evento GCS (Sitios) parseado desde request.data.")
+            except Exception as e: logger.warning(f"⚠️ Error procesando request.data (Sitios): {e}. Data: {raw_request_data_snippet}...")
+
+        # Validación del Payload GCS
+        if not gcs_event_payload or not isinstance(gcs_event_payload, dict):
+            logger.warning(f"⚠️ No se pudo extraer payload GCS válido (Sitios). Headers: {request.headers}, Snippet: {raw_request_data_snippet}...")
+            return make_response("Bad Request: Invalid GCS event payload", 202)
+
+        # Extracción de bucket y name
+        blob_name = gcs_event_payload.get("name")
+        bucket_name = gcs_event_payload.get("bucket")
+        resource_state = gcs_event_payload.get("resourceState")
+
+        if not bucket_name or not blob_name:
+            # logger.warning(f"⚠️ Payload GCS JSON inválido (Sitios): faltan 'bucket' o 'name'. Payload GCS: {gcs_event_payload}") # Comentado
+            return make_response("Bad Request: Missing bucket/name in GCS payload", 202)
+
+        if resource_state == 'not_exists':
+             logger.info(f"ℹ️ Ignorando evento 'not_exists' (Sitios): gs://{bucket_name}/{blob_name}")
+             return make_response("Ignored: Object does not exist", 200)
+
+        logger.info(f"▶️ Evento GCS (Sitios) procesando para: gs://{bucket_name}/{blob_name}")
+
+        # 2) Validar ruta del blob
+        if not blob_name.startswith(f"{ROOT_FOLDER}/"):
+            logger.info(f"ℹ️ Ignorando blob fuera de ROOT_FOLDER (Sitios): {blob_name}")
+            return make_response("Ignored: Outside root folder", 200)
+
+        # --- CAMBIO AQUÍ: Ignorar el archivo compilado único ---
+        # El archivo compilado siempre está en ROOT_FOLDER/COMPILED_FILENAME
+        compiled_blob_path = f"{ROOT_FOLDER}/{COMPILED_FILENAME}"
+        if blob_name == compiled_blob_path:
+            logger.info(f"ℹ️ Ignorando el propio archivo compilado (Sitios): {blob_name}")
+            return make_response("Ignored: Is the compiled file", 200)
+        # --- FIN DEL CAMBIO ---
+
+        # Validar que el archivo no esté directamente en ROOT_FOLDER (debe estar en subcarpeta)
+        relative_path = blob_name[len(ROOT_FOLDER):].lstrip('/')
+        if '/' not in relative_path:
+             logger.info(f"ℹ️ Ignorando archivo en raíz de {ROOT_FOLDER} (Sitios): {blob_name}")
+             return make_response("Ignored: File in root folder", 200)
+
+
+        # 3) Obtener blob crudo y verificar existencia
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        try:
+             blob.reload(timeout=30)
+        except NotFound:
+            logger.info(f"ℹ️ Blob '{blob_name}' (Sitios) no encontrado. Ignorando.")
+            return make_response("Ignored: Blob not found", 200)
+        except Exception as e:
+             logger.error(f"❌ Error verificando existencia (Sitios) de '{blob_name}': {e}", exc_info=True)
+             return make_response(f"Error checking blob existence: {e}", 500)
+
+        # 4) Cargar datos del archivo compilado existente (siempre el mismo archivo)
+        comp_blob = bucket.blob(compiled_blob_path) # <-- Siempre apunta al mismo blob
+        load_result = _load_compiled_data(comp_blob)
+
+        if load_result[0] is None:
+             logger.error(f"Fallo crítico cargando compilado (Sitios) {comp_blob.name}. Abortando.")
+             return make_response(f"Failed to load compiled data for {comp_blob.name}", 500)
+
+        valid_existing_lines, seen_keys, initial_generation = load_result
+
+        # 5) Procesar archivo crudo
+        appended_objs, _ = _process_raw_file(blob, seen_keys)
+
+        # 6) Actualizar archivo compilado
+        update_success = _update_compiled_file(comp_blob, valid_existing_lines, appended_objs, initial_generation)
+
+        if not update_success:
+            logger.error(f"❌ Fallo final al actualizar compilado (Sitios) '{comp_blob.name}'.")
+            return make_response(f"Failed to update compiled file {comp_blob.name} after retries.", 500)
+
+        # 7) Notificar al servicio de ingestión de Sitios
+        if not comp_blob.name: comp_blob.name = compiled_blob_path # Asegurar nombre
+
+        if appended_objs:
+             logger.info(f"ℹ️ Se añadieron {len(appended_objs)} nuevos registros (Sitios). Notificando a ingestión.")
+             # Notificar siempre el mismo archivo compilado
+             _notify_ingestion_service(bucket_name, comp_blob.name)
+        else:
+             logger.info(f"ℹ️ No se añadieron nuevos registros únicos (Sitios) desde '{blob_name}'. No se notifica.")
+
+        logger.info(f"✅ Proceso (Sitios) completado para gs://{bucket_name}/{blob_name}")
+        return make_response("OK", 200)
+
+    except Exception as e:
+        req_info = f"Headers: {request.headers}, Data Snippet: {raw_request_data_snippet}..." if request else "No request info"
+        logger.error(f"❌ Error fatal en compilar_sitios_json. {req_info}. Error: {e}", exc_info=True)
+        return make_response(f"Internal Server Error: {e}", 500)
+
+
+# --- Bloque para ejecución local (opcional) ---
+if __name__ == '__main__':
+    server_port = os.environ.get('PORT', '8080') # Puerto diferente si corre junto al otro
+    app.run(host='0.0.0.0', port=int(server_port), debug=False)
+
+# Requirements.txt
+# google-cloud-storage
+# google-cloud-bigquery
+# pandas
